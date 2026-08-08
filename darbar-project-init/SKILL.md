@@ -1,20 +1,20 @@
 ---
-name: houston-project-init
-description: Day-zero bootstrap for a Houston-tracked project. Interviews for context, registers the project + charter in Houston, cuts branches, seeds the task tree via recon subagents, binds the Slack channel for Gabbar intake, then turns the current session into the project's orchestrator. Use when starting a new agent-orchestrated project ("init project", "new houston project", "spin up a project").
+name: darbar-project-init
+description: Day-zero bootstrap for a Darbar-tracked project. Interviews for context, registers the project + charter in Darbar, cuts branches, seeds the task tree via recon subagents, binds the Slack channel for Gabbar intake, then turns the current session into the project's orchestrator. Use when starting a new agent-orchestrated project ("init project", "new darbar project", "spin up a project").
 ---
 
-# Houston Project Init
+# Darbar Project Init
 
-You are bootstrapping a new project into Houston (the self-hosted tracker at
-`~/fafo/houston`, API on `http://localhost:4899`) and becoming its orchestrator.
+You are bootstrapping a new project into Darbar (the self-hosted tracker at
+`~/fafo/darbar`, API on `http://localhost:4899`) and becoming its orchestrator.
 
 ## Preconditions
 
-1. Houston server must be up: `curl -s localhost:4899/` returns text. If not:
-   `cd ~/fafo/houston && bun run server > data/server.log 2>&1 &`
+1. Darbar server must be up: `curl -s localhost:4899/` returns text. If not:
+   `cd ~/fafo/darbar && bun run server > data/server.log 2>&1 &`
 2. Gabbar scribe should be up for Slack intake: check with
-   `pgrep -f src/bot.ts`; start with `cd ~/fafo/houston && bun run gabbar > data/gabbar.log 2>&1 &`
-3. Register the Houston MCP tools if not already in this session (see houston README
+   `pgrep -f src/bot.ts`; start with `cd ~/fafo/darbar && bun run gabbar > data/gabbar.log 2>&1 &`
+3. Register the Darbar MCP tools if not already in this session (see darbar README
    "MCP registration"). All board writes go through them or the REST API.
 
 ## Step 1 — Intake (one structured pass)
@@ -63,7 +63,7 @@ Spawn recon subagents in parallel (Agent tool), one per source: Slack thread dig
 Figma inventory, codebase state, prior session transcripts. Each returns a structured
 list of work items with evidence.
 
-Promote their output into Houston: `create_task` per item (streams as parent tasks,
+Promote their output into Darbar: `create_task` per item (streams as parent tasks,
 concrete items as subtasks via `parentTaskRef`), origins recorded, known blockers set.
 Log a `project bootstrapped` event.
 
