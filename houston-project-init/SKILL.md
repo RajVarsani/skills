@@ -13,7 +13,7 @@ You are bootstrapping a new project into Houston (the self-hosted tracker at
 1. Houston server must be up: `curl -s localhost:4899/` returns text. If not:
    `cd ~/fafo/houston && bun run server > data/server.log 2>&1 &`
 2. Gabbar scribe should be up for Slack intake: check with
-   `pgrep -f gabbar/bot.ts`; start with `cd ~/fafo/houston && bun run gabbar > data/gabbar.log 2>&1 &`
+   `pgrep -f src/bot.ts`; start with `cd ~/fafo/houston && bun run gabbar > data/gabbar.log 2>&1 &`
 3. Register the Houston MCP tools if not already in this session (see houston README
    "MCP registration"). All board writes go through them or the REST API.
 
