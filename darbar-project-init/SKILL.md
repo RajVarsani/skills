@@ -52,6 +52,15 @@ The charter is the standing context pack every agent fetches via the
 
 Save the returned `boardUrl` and `capId` — the capability URL is what stakeholders get.
 
+Then configure the **review pipeline** (`set_pipeline` MCP tool, or PATCH
+`/api/projects/:prefix` with `{pipeline}`): one lane per review kind the project wants
+(e.g. `code-review`, `qa`, `design-qa`, `regression`), each with a `manager` agent name.
+The server then auto-spawns those lanes as `type=review` subtasks whenever a dev task
+moves to `in_review`, gates `done` on the lanes closing, and (with `autoAdvance`, the
+default) closes the parent when the last lane does. Lane managers pick up their queue
+via the `my_tasks` MCP tool and reassign to subagents. Skip the pipeline only for
+trivial personal projects.
+
 ## Step 3 — Cut branches
 
 For each repo from intake: fetch, branch from the stated base, push only if the user's
