@@ -1,12 +1,28 @@
 ---
 name: darbar-project-init
-description: Bootstrap a Darbar-tracked project — day-zero OR retro-init of work already underway ("put this session under darbar", "register this project"). Interviews for context (mandatory, includes subagent structure + backlog scope + update cadence), registers the project + charter in Darbar, cuts branches, seeds the task tree so the board carries ALL known pending work, binds the Slack channel for Gabbar intake, then turns the current session into a strict orchestrate-only manager. Use when starting a new agent-orchestrated project ("init project", "new darbar project", "spin up a project") or when bringing an in-flight session/effort under Darbar tracking.
+description: Bootstrap a Darbar-tracked project AND run it. Day-zero OR retro-init of work already underway ("put this session under darbar", "register this project"). Interviews for context (mandatory, includes subagent structure + backlog scope + update cadence), registers the project + charter in Darbar, cuts branches, seeds the task tree so the board carries ALL known pending work, binds the Slack channel for Gabbar intake, then turns the current session into a strict orchestrate-only manager. Carries the full operating manual: every task / review-lane / feedback / project / agent lifecycle as the engine actually implements it, the standing orchestration doctrine, and how to recover a project someone else left in a mess. Use when starting a new agent-orchestrated project ("init project", "new darbar project", "spin up a project"), when bringing an in-flight session/effort under Darbar tracking, or when taking over an existing Darbar project.
 ---
 
 # Darbar Project Init
 
 You are bootstrapping a project into Darbar (the self-hosted tracker at
-`~/fafo/darbar`, API on `http://localhost:4899`) and becoming its orchestrator.
+`~/fafo/darbar`, API on `http://localhost:4899`) and then running it.
+
+This file is the whole job, in four parts. Read all of it before you start
+dispatching; the bootstrap is the short part.
+
+- **Part A** bootstrap: intake, registration, branches, seeding, announcement.
+- **Part B** the engine: every lifecycle exactly as the server implements it,
+  including the rules that surprise people and what happens when you break them.
+- **Part C** doctrine: the standing rules for running the project, with the
+  reasoning, because a rule you cannot justify is a rule you will drop.
+- **Part D** recovery: taking over a board someone else left mid-flight, and
+  the specific messes that show up.
+
+The companion reference is `~/fafo/darbar/docs/orchestrator-loop.md`. It carries
+the wire-level detail: exact routes, request bodies, field allowlists, the
+cold-start command sequence. Rules live here; commands live there. When you need
+to type something, open it.
 
 ## Preconditions
 
@@ -17,14 +33,21 @@ You are bootstrapping a project into Darbar (the self-hosted tracker at
 3. Register the Darbar MCP tools if not already in this session (see darbar README
    "MCP registration"). All board writes go through them or the REST API.
 
-## Step 1 — Intake (MANDATORY — never skip)
+Never restart a server you did not start, and never restart the one on 4899 to
+"pick up" a change without saying so first: other sessions are mid-write on it.
+
+# Part A — Bootstrap
+
+## Step 1 — Intake (MANDATORY, never skip)
 
 The interview is not optional. Do NOT infer answers from context you already have,
-and do NOT start building before it — a skipped interview is the documented failure
+and do NOT start building before it. A skipped interview is the documented failure
 mode of this skill. Ask the user in ONE AskUserQuestion round (free-text follow-ups
 only if genuinely blocking):
 
-- **Project name** and **short-id prefix** (2 to 6 caps, e.g. MRF, VAR)
+- **Project name** and **short-id prefix**. LETTERS ONLY, 2 to 6 of them
+  (`^[A-Za-z]{2,6}$`, uppercased server-side). A digit is a 400, so `V2` is fine
+  and `MRF2` is not.
 - **Repos + base branches** (e.g. saturn-fe from main, mars from stage) and the
   **feature branch name** to cut
 - **Sources**: Slack threads, Figma channels, docs, prior session ids
@@ -43,9 +66,9 @@ only if genuinely blocking):
 - **Subagent structure**: which review lanes this project may spawn (code-review is the
   baseline; add qa or design-qa only if the project will really have work that needs
   them) and who manages each lane, or explicitly none. Configuring a lane does not mean
-  every task runs it; each task picks its own lanes (Step 6)
+  every task runs it; each task picks its own lanes (Part B2)
 - **Helper subagents**: which non-lane helpers this project needs (deploy, seeding,
-  migrations, release notes, data pulls) — or explicitly none. Ask for each in registry
+  migrations, release notes, data pulls), or explicitly none. Ask for each in registry
   shape, because the answer is copied straight into the registry in Step 2: a **name**,
   **what it does and decides** plus what it must never touch, and **when it should be
   dispatched**. Canonical example (from MRF): a `deploy-devx` helper that deploys a given
@@ -59,53 +82,73 @@ only if genuinely blocking):
 ## Step 2 — Register the project
 
 POST `http://localhost:4899/api/projects` with name, prefix, repos, stakeholders
-(`[{name, slackUserId, role}]` — resolve handles to user ids via Slack API if needed),
+(`[{name, slackUserId, role}]`, resolve handles to user ids via Slack API if needed),
 `slackChannel`, and a **charter**.
+
+That route accepts nothing else. `pipeline`, `agents` and `proxy` sent on the POST are
+silently dropped, with a 200 and no warning, so they are three separate PATCHes below.
+Read back what you wrote before you believe it.
 
 The charter is the standing context pack every agent fetches via the
 `get_project_context` MCP tool. Write into it:
+
 - goal + streams of work
-- the standing protocols (defaults, adapt as needed): orchestrate-only (builders do the
-  work, orchestrator writes no code), builders verify build-only (tsc / go build),
-  commit discipline on shared checkouts (stage by explicit path, no `git add -A`,
-  `--no-verify`, confirm with `git show --stat`), concurrency cap 3 to 4 agents,
-  design QA reads live design-tool values not memory, QA asserts outcomes against DB
-  truth not UI interactions
+- the standing protocols. The defaults are Part C of this file, condensed; copy the
+  clauses that bind THIS project rather than a summary of all of them, because the
+  charter is what a builder or lane manager reads and they act on it. Always include:
+  orchestrate-only, one writer per file, lanes explicit and default code-review only,
+  one review round is the norm, commit discipline on shared checkouts (stage by explicit
+  path, no `git add -A`, confirm with `git show --stat`), and the verification bar
+  (typecheck plus a real test).
 - the project-specific safety rules and update cadence from intake
 - links to all sources
 
-Save the returned `boardUrl` and `capId` — the capability URL is what stakeholders get.
+Keep the charter internally consistent. It is one blob of text with no schema, so a
+clause you add in month two can flatly contradict one from day one and nothing will
+warn you. When you add a rule that supersedes an older one, edit the older one out.
+
+Save the returned `boardUrl` and `capId`. The capability URL is what stakeholders get.
 
 Then configure the **review pipeline** from the intake's subagent-structure answer
 (`set_pipeline` MCP tool, or PATCH `/api/projects/:ref` with
 `{pipeline: {autoAdvance, reviews: [{lane, label, manager}]}}`): one lane per review
-kind, each with a `manager` agent name. The server then auto-spawns one `type=review`
-subtask per lane the task itself selected whenever a dev task moves to `in_review`, gates
-`done` on the lanes closing, and (with `autoAdvance`, the default) closes the parent when the last
-lane does. Skip the pipeline only if intake explicitly chose "none".
+kind, each with a `manager` agent name. `reviews` replaces the whole lane list on every
+call. The server then spawns one `type=review` subtask per lane the task itself
+selected whenever a dev task moves into `in_review`, gates `done` on those closing, and
+(with `autoAdvance`, the default) closes the parent when the last lane does.
+Skip the pipeline only if intake explicitly chose "none".
 
 The pipeline is the menu, not the plan. Configuring qa and design-qa here does not mean
-tasks should run them — every task states its own `lanes` at `create_task`, and the
+tasks should run them. Every task states its own `lanes` at `create_task`, and the
 normal answer is one lane. Write that expectation into the charter so a fresh session
-inherits it (the wording in Step 6 is the version to copy).
+inherits it.
 
 Next, register the **agent registry** (`set_agents` MCP tool, or PATCH
 `/api/projects/:ref` with `{agents: [{name, kind, brief, trigger?}]}`). One entry per
 agent this project will ever dispatch:
 
-- every lane manager from the pipeline answer — `kind: "lane-manager"`
-- `orchestrator` itself — `kind: "orchestrator"`
-- every helper from intake — `kind: "helper"`
+- every lane manager from the pipeline answer, `kind: "lane-manager"`
+- `orchestrator` itself, `kind: "orchestrator"`
+- every helper from intake, `kind: "helper"`
 
 `brief` IS that agent's standing charter: write it as the prompt you would hand the
-subagent — what it decides, what it does, what it must never touch. `trigger` (optional)
-is the when-to-dispatch hint, e.g. "after a task's review lanes close". `set_agents`
-replaces the whole list, so always send the complete registry. Names must be unique —
-the name is the assignee key (`assignee`, `my_tasks`). Pipeline managers should exist in
-the registry: the server logs a `pipeline manager X not in agent registry` warning event
-otherwise (warn-only, the write still succeeds). Every agent then reads the registry
-alongside the charter via `get_project_context` (GET `/api/projects/:ref/context`), and
-it is served in the board payload too (GET `/api/p/:capId`).
+subagent, stating what it decides, what it does, and what it must never touch.
+`trigger` (optional) is the when-to-dispatch hint, e.g. "after a task's review lanes
+close". `set_agents` replaces the whole list, so always send the complete registry.
+Names must be unique, because the name is the assignee key (`assignee`, `my_tasks`); a
+duplicate is a 400 on the whole call. Pipeline managers should exist in the registry:
+the server logs a `pipeline manager X not in agent registry` warning event otherwise,
+warn-only, and the write still succeeds. Every agent then reads the registry alongside
+the charter via `get_project_context` (GET `/api/projects/:ref/context`), and it is
+served in the board payload too (GET `/api/p/:capId`).
+
+One gap to know at init: `get_project_context` returns name, prefix, repos, charter,
+stakeholders, agents and proxy, and **not** the pipeline. So the lane keys are not on the
+tool every agent is told to read. Three places do carry them: `GET /api/projects`, which
+returns every field except the charter and is line 1 of the cold start; the board payload
+(`GET /api/p/:capId` → `project.pipeline`); and the 400 you get for guessing wrong, which
+lists the valid keys. If lane keys matter to your subagents, name them in the charter text,
+because that is the one thing `get_project_context` does hand them.
 
 ### Register the shared surface, if intake asked for one
 
@@ -126,9 +169,11 @@ Configure it with the safety properties in front of you, because this route has 
   word a human chose, so `BASE_URL/<prefix>/` is guessable by anyone who knows the domain.
   The `public` patterns are the boundary; the prefix is not a credential.
 - **The prefix is the URL segment and the routing key.** It must be a non-empty string of
-  `[A-Za-z0-9_-]` — anything else is rejected 400 — and `p`, `api`, `files` and `-` are
+  `[A-Za-z0-9_-]`, anything else is rejected 400, and `p`, `api`, `files` and `-` are
   reserved, because they are the server's own paths and a prefix there would shadow the
-  board itself.
+  board itself. A prefix another project claims is a 409, and so is one already live on
+  the proxy as a hand-added route, but only on a change that would publish over it:
+  disabling, narrowing `public`, or clearing the config is always allowed.
 - **The `public` patterns ARE the boundary**, and they are not regexes. Each entry is a
   literal path starting with `/`, matching as a prefix by default (`/assets/`), with a
   trailing `$` for an exact path (`/$` is the root and nothing else) and at most one `*`
@@ -136,19 +181,19 @@ Configure it with the safety properties in front of you, because this route has 
   `[`, `+`, `\`, `.*`) are rejected 400 with the form spelled out. Patterns match the path
   AFTER the prefix is stripped: for a project at prefix `dar`, the public request
   `/dar/assets/app.js` is matched as `/assets/app.js`, so write `/assets/` and never
-  `/dar/assets/` — the prefixed form matches nothing and the route serves nothing. Omit
-  `public` and nothing is reachable from outside; `["/"]` exposes every path. Local
+  `/dar/assets/`, since the prefixed form matches nothing and the route serves nothing.
+  Omit `public` and nothing is reachable from outside; `["/"]` exposes every path. Local
   requests are never filtered, so "it works on my machine" tells you nothing about what a
   link-holder sees. Check by fetching the public URL.
 - **The target must be a dev server on this machine**, and the path is part of it. A Vite
   app served at base `/fe` needs `http://127.0.0.1:5173/fe`; without the path Vite gets
   `/` and 302s to `/fe/` forever through the prefix strip. Vite's `base` has to match the
-  prefix. The host must be a literal loopback address, or the one name that is special-cased:
-  `localhost`, any `127.x.x.x`, `0.0.0.0`, `::1`, `::` and the IPv4-mapped spellings of those
-  are accepted. Public addresses, LAN and private ranges, link-local (`169.254/16`,
-  `fc00::/7`, `fe80::/10`) and every other DNS name are rejected 400 — a literal address
-  cannot leave this host, while a name is resolved at request time by a resolver we do not
-  control.
+  prefix. The host must be a literal loopback address, or the one name that is
+  special-cased: `localhost`, any `127.x.x.x`, `0.0.0.0`, `::1`, `::` and the IPv4-mapped
+  spellings of those are accepted. Public addresses, LAN and private ranges, link-local
+  (`169.254/16`, `fc00::/7`, `fe80::/10`) and every other DNS name are rejected 400,
+  because a literal address cannot leave this host while a name is resolved at request
+  time by a resolver we do not control. No query string, no fragment, no `user:pass@`.
 - **Tunneled requests carrying `%2f` or `%5c` are refused outright** (403), because the
   proxy forwards the path verbatim and dev servers decode before resolving `..`, so an
   encoded slash would walk out of an allowed prefix upstream. A legitimately encoded slash
@@ -156,10 +201,7 @@ Configure it with the safety properties in front of you, because this route has 
 - **The target is never on the public board.** GET `/api/p/:capId` reports the prefix,
   the patterns and `targetRedacted: true`; the real host:port is only on
   `get_project_context`, which is local-only. Keep it that way in anything you write.
-- **Teardown is yours.** When the project closes, withdraw the route: `set_proxy` with
-  `enabled:false` keeps the config and takes the URL down, and PATCH
-  `/api/projects/:ref` with `{"proxy": null}` clears it entirely. A finished project
-  leaving a live route is a leak with nobody watching it.
+- **Teardown is yours.** See Part B4.
 
 Tell the user the shared URL explicitly, alongside the board URL, and say who it is for.
 
@@ -168,18 +210,20 @@ Tell the user the shared URL explicitly, alongside the board URL, and say who it
 When work exists but was never registered, or the orchestrator has been working
 inline ("put this session under darbar"):
 
-1. Run the SAME Step 1 intake — no shortcuts; the interview is mandatory here too.
+1. Run the SAME Step 1 intake, no shortcuts; the interview is mandatory here too.
 2. Register the project (Step 2), or PATCH `/api/projects/:ref` if it half-exists.
-3. Seed EVERY known pending item as a task — from the session so far, from memory
-   files, from the user's answers — including human tasks assigned to stakeholders
-   (e.g. "Tanisha: fix file_type hardcode"). Record origins.
+3. Seed EVERY known pending item as a task: from the session so far, from memory
+   files, from the user's answers, including human tasks assigned to stakeholders
+   (e.g. "Tanisha: fix file_type hardcode"). Record `origin` on the create call,
+   because `origin` cannot be changed afterwards (Part B1).
 4. Record already-done work as done cards so the board tells the true story of the
-   project, not just the future.
+   project, not just the future. File them with `status: "done"` directly; nothing
+   gates a create.
 5. Invariant from here on: **the board reflects ALL known pending work at all
-   times.** An empty todo column while work is pending is a bug — fix the board,
+   times.** An empty todo column while work is pending is a bug. Fix the board,
    then continue.
 
-Then proceed with Steps 3–6 as applicable (branches may already exist; skip cutting,
+Then proceed with Steps 3 to 5 as applicable (branches may already exist; skip cutting,
 verify instead).
 
 ## Step 3 — Cut branches
@@ -195,78 +239,423 @@ list of work items with evidence.
 
 Promote their output into Darbar: `create_task` per item (streams as parent tasks,
 concrete items as subtasks via `parentTaskRef`), origins recorded, known blockers set,
-and `lanes` stated on every row (`["code-review"]` unless the rules in Step 6 say
-otherwise; parent stream rows that carry no diff get `[]`). Cover every stream from the
-intake's backlog-scope answer; anything pending that you know about but don't file is a
-bug. Log a `project bootstrapped` event.
+and `lanes` stated on every row (`["code-review"]` unless Part B2 says otherwise;
+parent stream rows that carry no diff get `[]`). Cover every stream from the intake's
+backlog-scope answer; anything pending that you know about but do not file is a bug.
+Log a `project bootstrapped` event.
 
 ## Step 5 — Announce in Slack
 
-If a channel was bound: draft the announcement as Gabbar (board link + "file feedback
+If a channel was bound: draft the announcement as Gabbar (board link plus "file feedback
 by DMing me or mentioning me with a task id like `PREFIX-12`"). If a shared surface was
 published, put its URL next to the board link and say what it is, so nobody has to ask
 where to look. **Show the draft and wait for explicit approval before sending**
 (standing Slack rule).
 
-## Step 6 — Become the orchestrator (strict orchestrate-only)
+Then say out loud that you are now the orchestrator, report the board URL, the shared
+surface URL if one was published, task count seeded, branches cut, stakeholders
+onboarded, and anything from recon that needs the user's call. From here on you run
+Parts B and C.
 
-Adopt the manager loop for the rest of the session (and say so). Default is strict
-orchestrate-only — the orchestrator writes NO code, ever; relax only if the user
-explicitly says so:
+# Part B — The engine, lifecycle by lifecycle
 
-- **Dispatch**: one builder subagent per task via the Agent tool, each scoped to
-  exactly one task. Builders PATCH their own rows via REST
-  (`PATCH /api/tasks/:shortId` — `in_progress` on start, `in_review` with notes when
-  done, `blocked` with blocker if stuck). When the agent is in the registry, its
-  `brief` is the prompt — hand it the brief plus that task's context, nothing invented.
-- **Helpers**: dispatched exactly like builders. Every helper run gets its own task row
-  on the board; the subagent prompt is the helper's registry `brief` plus the task
-  context, and the helper PATCHes its own row (`in_progress` → `in_review`/`done`) so
-  its work is as visible as anyone else's. Create that row with `lanes: []`
-  (`create_task` / `POST /api/tasks` with `"lanes": []`) — that is what makes
-  `in_review` → `done` self-closing; omit `lanes` and the `in_review` PATCH spawns the
-  full pipeline (code-review/qa/design-qa on a deploy) and the row cannot close until
-  those lanes do. `trigger` is a hint, not a rule — you decide
-  when to fire (e.g. deploy-devx after a task's lanes close, and only if the change is
-  worth a deploy).
-- **Reviews**: the server auto-spawns review-lane subtasks on `in_review`, so the lanes
-  are decided when you file the task, not when it lands. **Always state `lanes`
-  explicitly at `create_task`.** Omitting the field spawns every configured lane, which
-  is how one routine feature ate three review agents and three re-verification rounds.
-  Spawn lane-manager subagents to drain their queues
-  (`GET /api/tasks?assignee=<manager>&open=true`), review the work, file findings via
-  `POST /api/feedback` (authorType `agent`), and close their lanes. The done-gate +
-  `autoAdvance` handle parents. Picking the lanes:
-  - Default is `lanes: ["code-review"]`. One lane is the normal answer for ordinary work.
-  - Add `qa` only when reading the diff cannot answer the question: a live data
-    migration is the standard case, because the code can look right while the migrated
-    rows are wrong.
-  - Add `design-qa` only for a UI surface a human will actually look at.
-  - Helper and bookkeeping rows get `lanes: []`, which makes `in_review` self-closing.
-  - The full set plus re-verification is for work that can hurt someone: the public
-    front door, anything that changes exposure. Reserve it for that, not for habit.
-  - Unknown lane keys 400, and the selection freezes once the review flow starts, so a
-    lane you skipped is a decision you keep.
-- **One review round is the norm.** A lane comes back SHIP or BLOCK. On BLOCK, fold
-  every finding you accept into ONE builder, and verify that rework with tests plus a
-  typecheck rather than a fresh lane. Sending the same change through another review
-  round needs a reason beyond wanting to be thorough. Findings that are real but not
-  blocking go on a polish backlog as their own tasks; they never sit on a ship gate.
-- **Feedback**: drain `next_pending_feedback` on a self-paced loop; triage every item:
-  rework an existing task, `create_task` a new one, reject with a reason, or ask for
-  clarification (all via `resolve_feedback`, which auto-replies in the author's
-  thread). Dedupe at triage: same defect from two authors = one task, both notified.
-- **Commits**: orchestrator commits per task only after its review lanes close,
-  following the charter's commit discipline.
-- **Board honesty**: the board is the single source of truth and must reflect ALL
-  known pending work at all times — file new work the moment you learn of it,
-  including human tasks. A fresh session must be able to resume from the API alone.
-- **Updates**: follow the cadence chosen at intake; Slack updates always draft-first
-  via Gabbar.
-- **Shared surface**: if one is published, it is yours for the life of the project. Keep
-  the `public` list as narrow as the surface actually needs, and withdraw the route when
-  the project closes (`set_proxy` `enabled:false`, or `{"proxy": null}` to clear it).
+Every rule below is enforced server-side in `apps/server/src/api.ts`, so it holds no
+matter who writes: board drag, MCP tool, or curl. That is why the surprises are worth
+memorising. You cannot get around them by picking a different client.
 
-Finish the bootstrap by reporting: board URL, the shared surface URL if one was
-published, task count seeded, branches cut, stakeholders onboarded, and anything from
-recon that needs the user's call.
+## B1 — Task lifecycle
+
+Statuses: `backlog`, `todo`, `in_progress`, `in_review`, `qa`, `blocked`, `done`,
+`cancelled`. Types: `feature`, `bug`, `chore`, `review`, `regression`.
+
+**There is no state machine on transitions.** Any status can go to any other status;
+`backlog` straight to `done` is accepted, and so is `done` back to `in_progress`. Two
+things and only two things are enforced, both on the way into `done`, and both only for
+non-review tasks:
+
+1. **Open review children 409.** `PATCH {status:"done"}` on a task with any review
+   subtask not in `done`/`cancelled` returns
+   `has N open review subtask(s); close them (or cancel them) first`. Cancelling a lane
+   satisfies the gate, which is the escape hatch when a lane is genuinely not applicable.
+2. **Open feedback filed ON the task 409.** Any feedback row whose `taskId` is this task
+   and whose status is `pending`, `triaged`, `accepted` or `in_progress` blocks `done`:
+   `has N open feedback row(s) (FB-3); resolve or reject them first`.
+   `needs_clarification` does NOT block, on the grounds that the ball is with the
+   reporter, so a task can ship with an unanswered question outstanding. Notice this
+   second gate: it is the reason a parent sits in `in_review` after its last lane
+   closed, and it is the one people misread as a bug in the pipeline.
+
+**`in_review` is a transition, not a state, for spawning purposes.** Lanes spawn only
+when a PATCH moves a task INTO `in_review` from something else. Consequences:
+
+- A task **created** with `status:"in_review"` spawns nothing, ever, and sits there
+  forever. Verified. If you seeded a card that way, move it out and back in.
+- PATCHing `in_review` onto a task already in `in_review` is a no-op for spawning, which
+  is exactly what you want during rework (Part C, review scale).
+- Once a round is fully closed, moving the parent out of `in_review` and back in spawns
+  a **whole fresh round** of every selected lane. That is how a second review round
+  happens by accident.
+
+**`lanes` freezes.** `lanes` is the per-task subset of configured lanes: `["code-review"]`
+a subset, `[]` explicitly none, `null` or absent means every configured lane. It can be
+edited freely while the task is `backlog`, `todo`, `in_progress` or `blocked`, and then:
+
+- a task in `in_review`, `qa`, `done` or `cancelled` 409s with
+  `lanes are frozen once the review flow starts`. Note `blocked` is not frozen and `qa`
+  is, which is not obvious from the column order.
+- a task with any review child at all, including closed and cancelled ones, 409s with
+  `already has review children; lanes cannot change`.
+- an unknown lane key 400s and names the valid keys, which is the cheapest way to
+  discover them.
+- a malformed shape (`lanes: [123]`) 400s rather than being coerced, so a typo can never
+  silently read as "explicitly none".
+
+So the lane you left off is a decision you keep. Decide once, at filing.
+
+**`dispatchedAt` is the dispatch fact, and only the orchestrator writes it.** You send
+`{"dispatched": true}` and the server stamps its own clock; a non-boolean is a 400, and
+`false` clears the stamp (a dispatch written off). Any status change to a DIFFERENT
+status clears it automatically, because the agent reporting for itself supersedes the
+hand-off; a PATCH that sets the same status again leaves it alone. An explicit
+`dispatched` in the same body as a status change wins, which is how you re-dispatch.
+The board renders the badge WITH ITS AGE and turns it red past 15 minutes, but only on
+`todo` and `backlog` rows: a stamp on any other status is invisible on the card. That is
+the whole mechanism by which a builder that never started is visible instead of looking
+like work in flight.
+
+**Immutable after create.** The task PATCH allowlist is `title`, `description`, `status`,
+`notes`, `type`, `assignee`, `blocker`, `lane`, `assigneeType`, `dispatched`, `lanes`,
+and `addCommit` (append-only, one hash per call). Everything else in the body is
+ignored silently with a 200: `origin`, `commits`, `shortId`, `parentTaskRef` and the
+project. So origin and parentage are decided at `create_task` or not at all, and a
+mis-parented card has to be replaced rather than moved. A PATCH with nothing in the
+allowlist returns the row unchanged and logs no event.
+
+**Nothing enforces `blocker` text on a `blocked` task.** A blocked row with a null
+blocker is accepted and tells your successor nothing. Always send both.
+
+## B2 — Review lane lifecycle
+
+A dev task moves into `in_review`. For each lane in `project.pipeline.reviews` that the
+task's `lanes` selected, the server inserts a child task: `type: "review"`,
+`status: "todo"`, `lane` set to the lane key, `assignee` set to that lane's `manager`,
+`title` `"<label>: <parent title>"`, `origin` `"pipeline:<parent>"`. It logs a
+`spawned` event per lane. It refuses to spawn if any review child is still open, so a
+re-entry cannot double up a live round.
+
+Two edge cases:
+
+- selected lanes that resolve to nothing (an explicit `lanes: []`, or a selection whose
+  lanes were later removed from the pipeline) log `no review lanes selected` and go
+  straight to the advance check. With `autoAdvance` on, that means `in_review` closes
+  itself, which is why helper rows use `lanes: []`. With `autoAdvance` off it does NOT
+  self-close; it logs `awaiting explicit push` and waits. The two are often stated as if
+  `lanes: []` alone were enough. It is not.
+- no pipeline configured at all, and `lanes` absent, means the task simply rests in
+  `in_review` with no children and no advance. Not an error, and easy to mistake for one.
+
+**A manager finds its queue by assignee.** `my_tasks` with `assignee: "staff-engineer"`,
+or `GET /api/tasks?assignee=staff-engineer&open=true`, optionally `&lane=code-review`.
+The board also has a per-lane view with open counts, which is the fastest human check.
+Never hand-create a `type=review` task: the create route will happily accept one, and
+it will then sit in a queue with no parent gate behind it.
+
+**Findings are feedback, not notes.** A lane files each finding as a feedback row on the
+PARENT (`POST /api/feedback` with `taskRef` the parent and `authorType: "agent"`). Those
+rows land in your normal pending queue and, because they are filed ON the parent, they
+hold the parent's `done` (B1 gate 2). That is deliberate: the lane can close its own
+child and go away, and the parent still cannot ship over an unresolved finding.
+
+**Closing a lane** is `PATCH {status:"done"}` (or `cancelled`) on the review child. A
+review child's own close is never gated. Closing the last one runs the advance check on
+the parent: reviews all closed, no blocking feedback, `autoAdvance` not false, and the
+parent is set to `done` with its dispatch stamp cleared. If blocking feedback remains it
+logs `reviews closed but N open feedback (...) — holding`. If `autoAdvance` is false it
+logs `all reviews closed — awaiting explicit push out of in_review`. Read the event log
+before you conclude anything is stuck.
+
+**The full one-round flow closes itself, verified end to end.** Lane files FB-1 on the
+parent and closes its child. Parent holds in `in_review`. You promote FB-1 onto a rework
+task with `resolvedTaskRef` (the row auto-moves to `triaged`). The rework builder ships
+its own row; when that row hits `done`, the server auto-resolves FB-1 with
+`shipped: DAR-12 (title) is done (commit abc123)`, replies in the author's thread, and
+then re-runs the advance check on the task FB-1 was filed on, which closes the parent.
+You never touch the parent's status. Keep the parent in `in_review` the whole time and
+no second round can spawn.
+
+## B3 — Feedback lifecycle
+
+Statuses: `pending`, `triaged`, `needs_clarification`, `accepted`, `in_progress`,
+`resolved`, `rejected`. Like tasks, there is **no ordering enforced**: any status to any
+status. The linear reading in the repo's CLAUDE.md is a description of intent, not a
+constraint.
+
+Rows arrive at `pending`: from Gabbar (Slack DMs and mentions, with the thread and any
+screenshots attached), from lane managers, and from you when a stakeholder says something
+in chat. Chat is a feedback channel too: file it as a row before you triage it, so the
+feedback tab carries the full human trail.
+
+`GET /api/feedback/pending` returns `pending` plus `needs_clarification`, oldest first.
+
+**A reopened clarification row does not carry the answer.** When the author replies in the
+thread, Gabbar's reopen sends `{status: "pending"}` and nothing else, so the row comes back
+into your queue with its ORIGINAL body and with your own question still sitting in
+`resolution`. A feedback body is immutable: the PATCH route writes only `status`,
+`resolution`, `type` and `resolvedTaskRef`, and nothing anywhere appends to `body`
+(verified: a `body` in the PATCH is ignored with a 200). The answer exists only in Slack.
+Go and read it, via the row's `slack.channel` and `slack.ts`, before you re-triage. A row
+that reappears with no visible change is the normal case, not a broken reopen.
+
+And a follow-up can still arrive as a **separate row**. Gabbar files a new row for a
+follow-up on an existing one rather than mutating it (that is what DAR-182 exists to
+change; appending is intended, not built). So expect the duplicate and dedupe it: one
+defect is one task, with both rows resolved pointing at it. Never re-file a reopened row
+as a second card yourself.
+
+**Which states reach the author.** The server, not the bot, posts the reply, and only for
+three statuses:
+
+- `resolved` → `*FB-3 resolved.* <resolution>`
+- `rejected` → `*FB-3 not actioned:* <resolution>`
+- `needs_clarification` → `*FB-3:* quick question, <resolution>`
+
+`triaged`, `accepted` and `in_progress` are silent, which is what makes them the right
+states for "on the board, author hears back on ship". Three details that bite:
+
+- the reply text is the `resolution` **in that same request body**, not whatever is
+  stored on the row. Resolve without a `resolution` and the author gets a bare
+  "FB-3 resolved." with nothing after it.
+- reject without a `resolution` and the server posts the literal
+  `no reason given (that is a bug, flag it)` into a human's Slack thread. Always give
+  the reason.
+- a failed Slack post is logged as a project event, never raised. If you expected a
+  reply, check the event log.
+
+**Promotion into a task** is `resolvedTaskRef` on the feedback PATCH. It sets
+`resolvedTaskId`/`resolvedTaskShortId`, and if the row was `pending` with no explicit
+status it auto-moves to `triaged`, because promoting IS triaging. When that task later
+reaches `done`, every row promoted onto it that is still `triaged`, `accepted` or
+`in_progress` auto-resolves with the shipped text and replies in thread. Rows sitting at
+`needs_clarification` are NOT picked up by that sweep, so a promoted-but-unanswered row
+goes quiet forever; resolve or reject it by hand.
+
+A `resolvedTaskRef` naming a task that does not exist is **silently ignored**: 200, no
+link, no error. Read back `resolvedTaskShortId` on the response.
+
+Note the deliberate asymmetry. Rows FILED ON a task (`taskId`) block its `done`. Rows
+PROMOTED ONTO a task (`resolvedTaskId`) are auto-resolved BY its `done`. A lane finding
+is usually both: filed on the parent, promoted onto the rework.
+
+**Dedupe at triage.** Same defect from two authors is ONE task and two resolved rows
+pointing at it, so each author gets their own thread reply. Before creating any task from
+feedback, scan the open tasks for a card that already covers it
+(`GET /api/tasks?project=X&open=true`). A second card for one defect is worse than a
+missing one: two builders, two diffs, one file.
+
+## B4 — Project lifecycle
+
+**Init** is Part A. **Retro-init** is the same interview plus a seeding pass that puts
+history on the board as done cards and every known pending item, human-owned included, as
+open ones. The rule that makes retro-init worth doing is the resume contract: a fresh
+session must be able to take over from the API alone.
+
+**Config edits today are wholesale.** `pipeline.reviews`, `agents` and `proxy` are each
+replaced entirely by their PATCH, and `charter` is one string you rewrite. So changing
+one agent's brief means resending the complete registry, and appending a charter clause
+means sending the charter back with the clause added. Read the current value first, edit,
+send it whole. Losing a registry entry this way is silent.
+
+**There is no close transition and no delete route.** No project status, no archive flag,
+no `DELETE /api/projects`, no `DELETE /api/tasks`. Closing a project is a discipline, and
+this is it:
+
+1. Every task in a terminal state. Cancel what will not be done, with a reason in
+   `notes`. Do not leave a backlog column as a monument (Part C).
+2. Every feedback row `resolved` or `rejected`, each with a resolution sentence, because
+   that sentence is the last thing an author hears.
+3. **Withdraw the shared proxy route, if the project had one.** This is the one step that
+   leaks if you skip it: there is no login in front of that route and nothing but the
+   `public` list keeps a passer-by out. `set_proxy` with `enabled:false` keeps the config
+   and takes the URL down; PATCH `{"proxy": null}` clears it entirely. The config is
+   replaced wholesale, so send the whole object when you disable.
+   Then **confirm rather than assume**: the returned project doc carries
+   `proxyPublished`, which is what the server reports it actually put in the route table
+   and has not withdrawn. Empty `proxyPublished` is the state you want at close. If the
+   reconcile could not reach the proxy it says so and leaves the route LIVE; the next
+   change or a server restart converges it, so re-check instead of walking away on the
+   first 200. A route the project no longer owns (someone else repointed the prefix) is
+   deliberately left alone and reported, not deleted.
+4. A final event on the log saying the project is closed, so the trail ends somewhere.
+
+**Throwaway projects.** If you need to exercise the API, do it on a throwaway prefix,
+never on a live project. Since there is no delete route, cleanup is direct Mongo against
+`mission_control`: delete the project's tasks, feedback and events by `projectId`, then
+the project. Verify nothing of it remains, and touch no other prefix.
+
+## B5 — Agent lifecycle
+
+An agent exists in three places, and all three have to agree.
+
+1. **Registry**: `project.agents`, one entry per agent you will ever dispatch, with
+   `kind` and the `brief` that IS its dispatch prompt. `name` is the assignee key, so it
+   is the join between the registry and every task row. A pipeline manager missing from
+   the registry is a warning event only; the lane still spawns and the task is still
+   assigned to a name nobody defined.
+2. **Dispatch**: one subagent per task, prompted with the registry `brief` plus that
+   task's context and nothing invented. Stamp `{"dispatched": true}` at the moment you
+   hand it over. The subagent owns its row from then on: `in_progress` on start,
+   `in_review` with `notes` when done, `blocked` with a `blocker` if stuck. You do not
+   move a dispatched task's status by hand.
+3. **The board**: the dispatch badge with its age is the only thing standing between a
+   dead builder and a card that reads as busy. Nothing polls the agents; nothing detects
+   a crash. A stamp older than 15 minutes on a `todo`/`backlog` row means the builder
+   never reported in. Either re-dispatch it or mark it `blocked`, and never assume it
+   started.
+
+Helpers are dispatched exactly like builders and get their own board row with
+`lanes: []`, so the row can self-close and the work is as visible as anyone else's. A
+registry `trigger` is a hint about when it usually fires. Nothing server-side dispatches
+a helper; you decide.
+
+# Part C — Doctrine
+
+These are standing rules. Each one cost real time to learn, so the reasoning is attached:
+you will meet a case the rule does not obviously cover, and the reasoning is what tells
+you what to do then.
+
+**Board honesty.** The board reflects ALL known pending work at all times, human-owned
+work included. An empty todo column while work is pending is a bug in the board, not a
+quiet week. File new work the moment you learn of it, from a feedback thread, a builder's
+notes, a lane finding, or your own observation, and file it before the round ends rather
+than after you have thought about it. The test is the resume contract: a fresh session
+reading only the API must know everything you know. Numbers must mean exactly one thing
+each, on the board and in anything you write: if a count excludes cancelled rows, say so
+where the count is, because a number whose definition lives in someone's head is a number
+that will be read wrong.
+
+**Strict orchestrate-only.** You write no code. Not a one-line fix, not a config tweak,
+not "while I am here". Every task goes to a subagent, helpers and bookkeeping included,
+and every subagent run has its own board row. This is not ceremony: the moment you start
+editing, you are a writer on files whose other writers you are supposed to be scheduling,
+and you are the one who cannot see your own conflict.
+
+**One writer per file, always.** Batch same-file work into a single agent; run agents
+concurrently only on disjoint files. Never let a rework touch a file while a reviewer is
+mid-session on it, because the reviewer will report on code that no longer exists and you
+will not be able to tell which of the two is wrong. After a crash or a usage-limit
+outage, do NOT assume every in-flight agent died. Check which actually failed: read the
+tree, read the task notes, look at what is on disk. Relaunch only what is genuinely
+missing. Blanket relaunching is how two agents end up in one file.
+
+**Review scale matches stakes, not habit.** Lanes are explicit at `create_task`, always,
+and the default is `lanes: ["code-review"]`. Omitting the field spawns every configured
+lane, which is how one routine feature ate three review agents plus three rounds of
+re-verification. Add `qa` only when reading the diff cannot answer the question, a live
+data migration being the standard case, because the code can be right while the migrated
+rows are wrong. Add `design-qa` only for a UI surface a human will actually look at.
+Helper and bookkeeping rows get `[]`. Reserve the full set plus re-verification for work
+that can hurt someone: the public front door, anything that changes exposure.
+
+One round is the norm. A lane returns SHIP or BLOCK. On BLOCK, sort the findings, fold
+every one you accept into ONE builder as a single rework, and verify that rework with
+tests plus a typecheck rather than by opening a fresh lane. Mechanically: leave the
+parent in `in_review` while the rework happens (B2), so the parent's own gates close it
+when the findings resolve and no second round can spawn. Non-blocking findings become
+their own tasks and never sit on a ship gate. A second review round on the same change
+needs a reason you can say out loud.
+
+**Shipped is not running.** A commit does not restart a long-lived process. Twice in one
+session a verified security fix sat committed while the old code kept serving, and both
+times the board said done. After shipping anything a running process holds in memory,
+restart that process and prove the new behaviour is live by exercising it, not by reading
+the diff again. If the process is not yours to restart, say so on the row instead of
+letting `done` imply it is in effect.
+
+**Your prescriptions are often wrong.** In one session four confident fixes were disproved
+by builders who actually ran the code: a backpressure check that was a silent no-op on
+this runtime, a fail-closed claim that was fail-open, an over-strict validation claim, and
+a UI fix that would have swapped one misreading for another. You are reasoning about code
+you are not allowed to run. So write briefs that invite disagreement, ask for evidence
+rather than compliance, and treat "your prescription is wrong, here is what I did instead,
+here is the output" as the system working. A builder who only ever agrees with you is a
+builder you are not getting value from.
+
+**Verify that tests are real.** Run the new test against the pre-change code and watch it
+fail. A test that passes on the unfixed version proves nothing and will be cited later as
+if it proved something. Ask for that evidence in the brief; accept the fix without it only
+when you have decided out loud that you are doing so.
+
+**Prose that overstates a bound is worse than no prose.** The recurring defect class on
+this project is not broken logic, it is the sentence above the mechanism: a comment
+claiming a bound that does not hold, a UI label that inverts what it describes, a doc
+calling a guessable URL an access control. Code that is wrong gets caught by use; a claim
+that is wrong gets believed. Fix the claim with the same seriousness as the code, and hold
+lanes to it.
+
+**Backlog is usually a lie.** A card nobody will pick up is not tracking, it is
+decoration, and it makes the board's numbers mean less. If it is worth doing, do it now
+or schedule it; if it is not, cancel it with a reason. The exception is a genuine
+not-yet-promised candidate, which is what `backlog` is for, and even then it should be
+something you expect to promote or cancel this project, not a shelf.
+
+**Cleanup discipline.** Kill only processes you started, matched by exact pid. Never a
+broad `pkill -f`: one lane's pattern was wider than its own rig and killed unrelated
+servers. Never write to the live proxy route table or `data/routes.json` by hand; the
+server owns them and reconciles from the project docs, so a hand edit is drift the next
+reconcile will fight. Do not restart the tracker on 4899 or the proxy on 4800 to fix
+something local to you.
+
+**Commits.** Per task, after its review lanes close, so a commit always corresponds to
+something reviewed. On shared checkouts stage by explicit path, never `git add -A`, and
+confirm with `git show --stat` before moving on; other agents have unrelated work in the
+same tree. Never touch envs or secrets. Never force-push, and never amend a commit that
+is already under review: add a new one.
+
+**Slack.** Draft first, always. Never send without explicit approval in that same turn,
+including announcements and updates you were asked for earlier. No em dashes and no
+AI-tell phrasing in anything that reaches Slack, which includes Gabbar replies, server
+auto-resolutions, and the resolution sentences you write, because those get posted
+verbatim into a human's thread.
+
+# Part D — Taking over, and recovering a mess
+
+Assume nothing from session memory. Cold-start from the API (the exact sequence is in
+`orchestrator-loop.md` section 7), read the charter as your standing instructions, then
+read the event log before you touch anything: it is the only place that explains why the
+board looks the way it does.
+
+Then run the audit, and keep running it at the end of every round:
+
+- Every known pending piece of work has a card, including human-owned work. Anything you
+  learned this round that is not on the board gets filed before the round ends.
+- No `in_progress` row with a dead builder. Check whether the agent exists before
+  deciding; if it is gone, re-dispatch or mark `blocked` with a blocker.
+- No dispatch stamp older than 15 minutes on a `todo`/`backlog` row.
+- Nothing silently gated: `in_review` parents whose lanes all closed, `blocked` rows
+  whose blocker has cleared, feedback rows sitting in `accepted` with nobody on them.
+- If the project shares a surface, `proxy` and `proxyPublished` still agree.
+- Log anything worth a trace as an event.
+
+The messes you will actually find, and what each one is:
+
+- **A parent stuck in `in_review` with every lane closed.** Almost always open feedback
+  filed on it (B1 gate 2); the event log will say `holding` and name the rows. Otherwise
+  `autoAdvance` is off and it wants an explicit push. It is not a pipeline bug.
+- **A task in `in_review` with no review children at all.** Either it was created at
+  `in_review` (spawning never ran), or the pipeline was empty when it landed. Move it out
+  and back in to spawn a round, or close it deliberately.
+- **A task that grew a second round of lanes.** Someone pushed the parent out of
+  `in_review` and back in during rework. Cancel the duplicate children rather than
+  staffing them, note why on the parent, and keep the parent in `in_review` next time.
+- **An empty todo column with work obviously in flight.** The board is lying. Reconstruct
+  from the event log, builder notes, and the repo state, and file the missing rows before
+  you dispatch anything new.
+- **A card that says done for something not running.** Shipped is not running. Verify by
+  exercising the behaviour, and reopen the card if it is not live.
+- **Feedback rows nobody replied to.** Anything sitting at `pending` for a long time is a
+  human waiting. Drain oldest first, and give every row exactly one verb.
+- **A live proxy route for finished work.** Compare `proxy` with `proxyPublished`,
+  withdraw, and re-check that the withdrawal actually landed.
+- **Agents mid-flight after your own session died.** Check which actually failed before
+  relaunching anything. Inspect the tree and the task notes; relaunch only what is
+  genuinely missing. One writer per file survives a crash only if you check first.
