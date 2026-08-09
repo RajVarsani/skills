@@ -115,13 +115,20 @@ The charter is the standing context pack every agent fetches via the
 Keep the charter internally consistent. It is one blob of text with no schema, so a
 clause you add in month two can flatly contradict one from day one and nothing will
 warn you. When you add a rule that supersedes an older one, edit the older one out.
+Adding a clause does not mean resending the charter: `append_to_charter` puts one line
+at the end and leaves the existing prose alone. Editing an older clause out is still a
+wholesale rewrite, which is the case the append tool deliberately does not cover (B4).
 
 Save the returned `boardUrl` and `capId`. The capability URL is what stakeholders get.
 
 The **review pipeline** comes from the intake's subagent-structure answer and rides on that
-same POST as `{pipeline: {autoAdvance, reviews: [{lane, label, manager}]}}` (afterwards:
-the `set_pipeline` MCP tool, or PATCH `/api/projects/:ref`): one lane per review kind, each
-with a `manager` agent name. `reviews` replaces the whole lane list on every call. The
+same POST as `{pipeline: {autoAdvance, reviews: [{lane, label, manager}]}}` (the same whole
+pipeline can be declared later with the `set_pipeline` MCP tool, or PATCH
+`/api/projects/:ref`): one lane per review kind, each
+with a `manager` agent name. `reviews` replaces the whole lane list on every call, which
+is what declaring a pipeline needs and is a trap for every edit after it: mid-session,
+change one lane with `add_review_lane` / `update_review_lane` / `remove_review_lane` and
+flip the boolean alone with `set_auto_advance` (B4). The
 server then spawns one `type=review` subtask per lane the task itself selected whenever a
 dev task reaches `in_review`, gates `done` on those closing, and
 (with `autoAdvance`, the default) closes the parent when the last lane does.
@@ -133,8 +140,8 @@ normal answer is one lane. Write that expectation into the charter so a fresh se
 inherits it.
 
 The **agent registry** rides on the same call as `{agents: [{name, kind, brief, trigger?}]}`
-(afterwards: `set_agents`, or PATCH `/api/projects/:ref`). One entry per agent this project
-will ever dispatch:
+(the same whole registry can be declared later with `set_agents`, or PATCH
+`/api/projects/:ref`). One entry per agent this project will ever dispatch:
 
 - every lane manager from the pipeline answer, `kind: "lane-manager"`
 - `orchestrator` itself, `kind: "orchestrator"`
@@ -143,7 +150,9 @@ will ever dispatch:
 `brief` IS that agent's standing charter: write it as the prompt you would hand the
 subagent, stating what it decides, what it does, and what it must never touch.
 `trigger` (optional) is the when-to-dispatch hint, e.g. "after a task's review lanes
-close". `set_agents` replaces the whole list, so always send the complete registry.
+close". `set_agents` replaces the whole list, so send the complete registry with it and
+never reach for it to change one entry: `add_agent` / `update_agent` / `remove_agent`
+edit one agent and leave the rest standing (B4).
 Names must be unique, because the name is the assignee key (`assignee`, `my_tasks`); a
 duplicate is a 400 on the whole call. Pipeline managers should exist in the registry:
 the server logs a `pipeline manager X not in agent registry` warning event otherwise,
@@ -163,14 +172,21 @@ wrong, which lists the valid ones.
 Only if the shared-surface answer was yes. `set_proxy` (or PATCH `/api/projects/:ref`
 with `{proxy: {prefix, target, public, enabled}}`) publishes one local dev server at
 `<baseUrl>/<prefix>/`, the same public origin the board link uses. The config is
-replaced wholesale on every call, and the server pushes it into the proxy route table
+replaced wholesale on every call, which is the declare door and the last time you should
+use it on this surface: afterwards `patch_proxy_route` edits one field and
+`set_proxy_enabled` publishes or withdraws, and they are two tools rather than one so
+that publishing can never happen as a side effect of fixing a path pattern (B4). The
+server pushes the config into the proxy route table
 and re-reconciles at every change and at boot, so a push that failed while the proxy was
 down gets repaired rather than left as drift.
 
 Configure it with the safety properties in front of you, because this route has no login:
 
 - **Default is `enabled:false`.** Configure the route, read back what it exposes, then
-  flip `enabled:true` in a second call. Do not share and then narrow.
+  flip `enabled:true` in a second call. Do not share and then narrow. That second call is
+  `set_proxy_enabled`, and enabling it requires the prefix echoed back as `confirmPrefix`:
+  without it the 400 states the URL and the paths that would become reachable, so the
+  decision is made with the exposure in front of whoever owns it. Withdrawing asks nothing.
 - **Anyone who reaches the route reaches the target.** There is no auth in front of it and
   no per-stakeholder access. The URL is not the access control: the board link carries a
   21-char random `capId`, so it is genuinely unguessable, but the proxy prefix is a short
@@ -502,11 +518,62 @@ history on the board as done cards and every known pending item, human-owned inc
 open ones. The rule that makes retro-init worth doing is the resume contract: a fresh
 session must be able to take over from the API alone.
 
-**Config edits today are wholesale.** `pipeline.reviews`, `agents` and `proxy` are each
-replaced entirely by their PATCH, and `charter` is one string you rewrite. So changing
-one agent's brief means resending the complete registry, and appending a charter clause
-means sending the charter back with the clause added. Read the current value first, edit,
-send it whole. Losing a registry entry this way is silent.
+**Config has two doors, and the whole skill of editing it is picking the right one.**
+
+The **declare door** is `POST /api/projects` at init and `PATCH /api/projects/:ref`
+afterwards, with `set_pipeline`, `set_agents` and `set_proxy` on top of it. Each field
+replaces its value entirely: `pipeline.reviews`, `agents`, `stakeholders` and `proxy` are
+whole lists, `charter` is one string. That is exactly right for declaring a surface, which
+is why init is one call and why these tools still exist. It is the wrong door for a change:
+"edit one agent's brief" sent as a one-element `agents` array deletes every other agent,
+returns 200 and logs a cheerful `project updated (agents): agents [...]` listing only the
+survivor. Nothing warns you, and the registry is what the orchestrator dispatches from.
+
+The **edit door** is one tool per intent, and it is what you use from the second call on:
+`add_stakeholder` / `update_stakeholder` / `remove_stakeholder`, `add_agent` /
+`update_agent` / `remove_agent`, `add_review_lane` / `update_review_lane` /
+`remove_review_lane`, `set_auto_advance`, `append_to_charter`, `patch_proxy_route` and
+`set_proxy_enabled`. You send only the thing you are changing; the SERVER reads the current
+value, merges, and hands the result to the same validator the declare door uses. So a
+partial edit cannot reach a state the wholesale door would have refused: identical readers,
+identical 400s, identical event log, identical proxy reconciliation. The properties worth
+knowing, all of them enforced server-side:
+
+- **Addressing is edit-only.** An agent name, lane key or stakeholder name that is not
+  there is a 404 that lists what is, never an upsert, because a typo silently registering
+  a second `staff-enginer` is the accident this door exists to prevent. Creating is its
+  own POST, and it 409s on a name already taken, comparing trimmed and case-folded so
+  `Staff-Engineer` collides with `staff-engineer` instead of becoming a second dispatch
+  key. The one thing created implicitly is the pipeline CONTAINER when you add the first
+  lane to a project that had none, since a container has no name to mistype.
+- **Lane changes are gated on open work.** Removing or renaming a lane that open tasks
+  select 409s with the task ids and says which of two end states each one lands in: a task
+  that named only this lane skips review and, with `autoAdvance`, goes straight to DONE
+  UNREVIEWED, while a task with no `lanes` field losing the LAST lane spawns nothing, logs
+  nothing and STALLS in `in_review`. Re-pick those tasks' lanes, or repeat with `force`.
+  Tasks that keep another lane are warned about, not gated. Everything else is a warning
+  rather than a refusal, on one rule: gate when the consequence is a review that silently
+  does not happen, warn when the consequence is visible on the board. Pointing a lane at an
+  unregistered manager only warns, because the review task is still created where anyone
+  can see it, and so does removing an agent that still holds open tasks or manages a lane.
+- **Renames move config, never data.** Renaming an agent rewrites any pipeline lane that
+  named it as manager, and reports back the open tasks still assigned to the old name; it
+  does not reassign them, and neither does a stakeholder rename. That queue is unread until
+  you PATCH each task.
+- **The proxy is deliberately two tools.** `patch_proxy_route` changes prefix, target or
+  allowlist and cannot touch `enabled` (it 400s and names the other route). `set_proxy_enabled`
+  publishes or withdraws and does nothing else. Exposure is never a side effect of an edit.
+  Editing a route that is already live also asks for the prefix as confirmation when the
+  change is not a literal narrowing; editing a withdrawn one never asks.
+- **These gates are the granular door's manners, not an invariant of the system.** The
+  declare door stays unguarded on purpose, because an init has to configure a whole
+  pipeline or a whole share in one call, so anyone who insists can still bypass every gate
+  above with one wholesale PATCH. Do not read a gate as protection against yourself.
+
+Two things still have no edit door: rewriting or restructuring the charter (append only
+adds a line at the end, and it is not idempotent, so check before repeating a call you
+think failed), and replacing the stakeholder list in bulk. Both go through
+`PATCH /api/projects/:ref`, read-edit-send-whole, with the same care as before.
 
 **There is no close transition and no delete route.** No project status, no archive flag,
 no `DELETE /api/projects`, no `DELETE /api/tasks`. Closing a project is a discipline, and
@@ -518,9 +585,9 @@ this is it:
    that sentence is the last thing an author hears.
 3. **Withdraw the shared proxy route, if the project had one.** This is the one step that
    leaks if you skip it: there is no login in front of that route and nothing but the
-   `public` list keeps a passer-by out. `set_proxy` with `enabled:false` keeps the config
-   and takes the URL down; PATCH `{"proxy": null}` clears it entirely. The config is
-   replaced wholesale, so send the whole object when you disable.
+   `public` list keeps a passer-by out. `set_proxy_enabled` with `enabled:false` takes the
+   URL down and keeps the config, resending nothing and asking no confirmation; PATCH
+   `{"proxy": null}` clears the config entirely and is still the wholesale door.
    Then **confirm rather than assume**: the returned project doc carries
    `proxyPublished`, which is what the server reports it actually put in the route table
    and has not withdrawn. Empty `proxyPublished` is the state you want at close. If the
@@ -688,7 +755,15 @@ The messes you will actually find, and what each one is:
   `lanes` resolved to nothing (an explicit `[]`, or lanes since removed from the pipeline)
   and it is waiting for a push, not a reviewer. Otherwise no pipeline was configured when
   it landed, or it is an old row created at `in_review` back when the create path did not
-  spawn. Move it out and back in to spawn a round, or close it deliberately.
+  spawn. Move it out and back in to spawn a round, or close it deliberately. If a lane was
+  removed under it, that removal came through the wholesale PATCH or through `force`: the
+  granular remove refuses this exact case and names the tasks (B4).
+- **An agent, lane or stakeholder that used to be there and is not.** A wholesale
+  `set_agents` / `set_pipeline` / `PATCH {stakeholders}` carrying one entry deletes the
+  rest under a 200. The event log records the resulting list at every config write
+  (`project updated (agents): agents [...]`), so diff two of those entries to see what
+  went, then re-add with the granular tools. A missing stakeholder also means that person
+  has been silently unable to file feedback since.
 - **A task that grew a second round of lanes.** Someone pushed the parent out of
   `in_review` and back in during rework. Cancel the duplicate children rather than
   staffing them, note why on the parent, and keep the parent in `in_review` next time.
