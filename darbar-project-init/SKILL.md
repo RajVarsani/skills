@@ -35,6 +35,13 @@ only if genuinely blocking):
 - **Slack channel** to bind for feedback intake (optional; DMs always work)
 - **Subagent structure**: which review lanes (e.g. code-review, qa, design-qa,
   regression) and who manages each lane — or explicitly none
+- **Helper subagents**: which non-lane helpers this project needs (deploy, seeding,
+  migrations, release notes, data pulls) — or explicitly none. Ask for each in registry
+  shape, because the answer is copied straight into the registry in Step 2: a **name**,
+  **what it does and decides** plus what it must never touch, and **when it should be
+  dispatched**. Canonical example (from MRF): a `deploy-devx` helper that deploys a given
+  branch to the dev environment and verifies it came up, dispatched once a task's review
+  lanes close
 - **Backlog scope**: which work streams to seed on the board now, including known
   pending items and human-owned work
 - **Update cadence**: board-only | chat summaries | Slack via Gabbar (draft-first,
@@ -67,6 +74,24 @@ kind, each with a `manager` agent name. The server then auto-spawns those lanes 
 `type=review` subtasks whenever a dev task moves to `in_review`, gates `done` on the
 lanes closing, and (with `autoAdvance`, the default) closes the parent when the last
 lane does. Skip the pipeline only if intake explicitly chose "none".
+
+Next, register the **agent registry** (`set_agents` MCP tool, or PATCH
+`/api/projects/:ref` with `{agents: [{name, kind, brief, trigger?}]}`). One entry per
+agent this project will ever dispatch:
+
+- every lane manager from the pipeline answer — `kind: "lane-manager"`
+- `orchestrator` itself — `kind: "orchestrator"`
+- every helper from intake — `kind: "helper"`
+
+`brief` IS that agent's standing charter: write it as the prompt you would hand the
+subagent — what it decides, what it does, what it must never touch. `trigger` (optional)
+is the when-to-dispatch hint, e.g. "after a task's review lanes close". `set_agents`
+replaces the whole list, so always send the complete registry. Names must be unique —
+the name is the assignee key (`assignee`, `my_tasks`). Pipeline managers should exist in
+the registry: the server logs a `pipeline manager X not in agent registry` warning event
+otherwise (warn-only, the write still succeeds). Every agent then reads the registry
+alongside the charter via `get_project_context` (GET `/api/projects/:ref/context`), and
+it is served in the board payload too (GET `/api/p/:capId`).
 
 ## Retro-init — project already underway
 
@@ -118,11 +143,23 @@ explicitly says so:
 - **Dispatch**: one builder subagent per task via the Agent tool, each scoped to
   exactly one task. Builders PATCH their own rows via REST
   (`PATCH /api/tasks/:shortId` — `in_progress` on start, `in_review` with notes when
-  done, `blocked` with blocker if stuck).
+  done, `blocked` with blocker if stuck). When the agent is in the registry, its
+  `brief` is the prompt — hand it the brief plus that task's context, nothing invented.
+- **Helpers**: dispatched exactly like builders. Every helper run gets its own task row
+  on the board; the subagent prompt is the helper's registry `brief` plus the task
+  context, and the helper PATCHes its own row (`in_progress` → `in_review`/`done`) so
+  its work is as visible as anyone else's. Create that row with `lanes: []`
+  (`create_task` / `POST /api/tasks` with `"lanes": []`) — that is what makes
+  `in_review` → `done` self-closing; omit `lanes` and the `in_review` PATCH spawns the
+  full pipeline (code-review/qa/design-qa on a deploy) and the row cannot close until
+  those lanes do. `trigger` is a hint, not a rule — you decide
+  when to fire (e.g. deploy-devx after a task's lanes close, and only if the change is
+  worth a deploy).
 - **Reviews**: the server auto-spawns review-lane subtasks on `in_review`. Choose
   each task's lanes by judgment at `create_task` time via `lanes` (code-review for
-  code, qa for behavior, design-qa only for UI; `[]` = none; omit = all). Spawn
-  lane-manager subagents to drain their queues
+  code, qa for behavior, design-qa only for UI; `[]` = none; omit = all configured
+  lanes; unknown keys 400, and the selection freezes once the review flow starts).
+  Spawn lane-manager subagents to drain their queues
   (`GET /api/tasks?assignee=<manager>&open=true`), review the work, file findings via
   `POST /api/feedback` (authorType `agent`), and close their lanes. The done-gate +
   `autoAdvance` handle parents.
