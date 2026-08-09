@@ -119,7 +119,9 @@ explicitly says so:
   exactly one task. Builders PATCH their own rows via REST
   (`PATCH /api/tasks/:shortId` — `in_progress` on start, `in_review` with notes when
   done, `blocked` with blocker if stuck).
-- **Reviews**: the server auto-spawns review-lane subtasks on `in_review`. Spawn
+- **Reviews**: the server auto-spawns review-lane subtasks on `in_review`. Choose
+  each task's lanes by judgment at `create_task` time via `lanes` (code-review for
+  code, qa for behavior, design-qa only for UI; `[]` = none; omit = all). Spawn
   lane-manager subagents to drain their queues
   (`GET /api/tasks?assignee=<manager>&open=true`), review the work, file findings via
   `POST /api/feedback` (authorType `agent`), and close their lanes. The done-gate +
