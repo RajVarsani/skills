@@ -85,9 +85,18 @@ POST `http://localhost:4899/api/projects` with name, prefix, repos, stakeholders
 (`[{name, slackUserId, role}]`, resolve handles to user ids via Slack API if needed),
 `slackChannel`, and a **charter**.
 
-That route accepts nothing else. `pipeline`, `agents` and `proxy` sent on the POST are
-silently dropped, with a 200 and no warning, so they are three separate PATCHes below.
-Read back what you wrote before you believe it.
+`pipeline`, `agents` and `proxy` go in the SAME call. Registering a project is one POST,
+not a POST followed by three PATCHes: the config runs through the same reader and the same
+write path as every later edit, it is validated before the insert (so a malformed pipeline
+is a 400 with no project created, never one left half-configured), and the response carries
+`boardUrl` plus a `warnings` array for the things the server declines to fail on. Read the
+warnings; nothing else surfaces them except the event log.
+
+`stakeholders` is validated here too, not stored raw. A `slackUserId` must be a Slack USER
+id, `U` or `W` then uppercase letters and digits, and anything else is a 400 naming the
+index. That shape matters because it is access control, not metadata: Gabbar matches it
+against the verified sender before filing feedback, so a handle typed as `@raj` would
+refuse a real person silently forever.
 
 The charter is the standing context pack every agent fetches via the
 `get_project_context` MCP tool. Write into it:
@@ -109,12 +118,12 @@ warn you. When you add a rule that supersedes an older one, edit the older one o
 
 Save the returned `boardUrl` and `capId`. The capability URL is what stakeholders get.
 
-Then configure the **review pipeline** from the intake's subagent-structure answer
-(`set_pipeline` MCP tool, or PATCH `/api/projects/:ref` with
-`{pipeline: {autoAdvance, reviews: [{lane, label, manager}]}}`): one lane per review
-kind, each with a `manager` agent name. `reviews` replaces the whole lane list on every
-call. The server then spawns one `type=review` subtask per lane the task itself
-selected whenever a dev task moves into `in_review`, gates `done` on those closing, and
+The **review pipeline** comes from the intake's subagent-structure answer and rides on that
+same POST as `{pipeline: {autoAdvance, reviews: [{lane, label, manager}]}}` (afterwards:
+the `set_pipeline` MCP tool, or PATCH `/api/projects/:ref`): one lane per review kind, each
+with a `manager` agent name. `reviews` replaces the whole lane list on every call. The
+server then spawns one `type=review` subtask per lane the task itself selected whenever a
+dev task reaches `in_review`, gates `done` on those closing, and
 (with `autoAdvance`, the default) closes the parent when the last lane does.
 Skip the pipeline only if intake explicitly chose "none".
 
@@ -123,9 +132,9 @@ tasks should run them. Every task states its own `lanes` at `create_task`, and t
 normal answer is one lane. Write that expectation into the charter so a fresh session
 inherits it.
 
-Next, register the **agent registry** (`set_agents` MCP tool, or PATCH
-`/api/projects/:ref` with `{agents: [{name, kind, brief, trigger?}]}`). One entry per
-agent this project will ever dispatch:
+The **agent registry** rides on the same call as `{agents: [{name, kind, brief, trigger?}]}`
+(afterwards: `set_agents`, or PATCH `/api/projects/:ref`). One entry per agent this project
+will ever dispatch:
 
 - every lane manager from the pipeline answer, `kind: "lane-manager"`
 - `orchestrator` itself, `kind: "orchestrator"`
@@ -142,13 +151,12 @@ warn-only, and the write still succeeds. Every agent then reads the registry alo
 the charter via `get_project_context` (GET `/api/projects/:ref/context`), and it is
 served in the board payload too (GET `/api/p/:capId`).
 
-One gap to know at init: `get_project_context` returns name, prefix, repos, charter,
-stakeholders, agents and proxy, and **not** the pipeline. So the lane keys are not on the
-tool every agent is told to read. Three places do carry them: `GET /api/projects`, which
-returns every field except the charter and is line 1 of the cold start; the board payload
-(`GET /api/p/:capId` → `project.pipeline`); and the 400 you get for guessing wrong, which
-lists the valid keys. If lane keys matter to your subagents, name them in the charter text,
-because that is the one thing `get_project_context` does hand them.
+`get_project_context` carries the pipeline as well, so the lane keys ARE on the tool every
+agent is told to read: it returns name, prefix, repos, charter, stakeholders, pipeline,
+agents, proxy, proxyPublished and a `configured` map of which of the three are set. Two
+other places carry the keys if you need them: `GET /api/projects`, which returns every
+field except the charter and is line 1 of the cold start, and the 400 you get for guessing
+wrong, which lists the valid ones.
 
 ### Register the shared surface, if intake asked for one
 
@@ -216,9 +224,16 @@ inline ("put this session under darbar"):
    files, from the user's answers, including human tasks assigned to stakeholders
    (e.g. "Tanisha: fix file_type hardcode"). Record `origin` on the create call,
    because `origin` cannot be changed afterwards (Part B1).
-4. Record already-done work as done cards so the board tells the true story of the
-   project, not just the future. File them with `status: "done"` directly; nothing
-   gates a create.
+4. File every row at the status the work is actually at, which is the point of retro-init:
+   already-done work as `done` cards so the board tells the true story of the project and
+   not just its future, work in flight at `in_progress`, work waiting on a reviewer at
+   `in_review`. Nothing gates a create. One thing to expect: a row filed at `in_review`
+   now SPAWNS its lanes at create (Part B1), so it arrives with real review children
+   assigned to real managers. That is what you want for work genuinely under review, so
+   state `lanes` on those rows as deliberately as on any other. Do not reach for `lanes: []`
+   to file a quiet `in_review` row: with `autoAdvance` on, an empty selection self-advances
+   at create and the row lands at `done`, not `in_review` (verified). Work that is finished
+   should be filed as `done`, and work still in hand as `in_progress`.
 5. Invariant from here on: **the board reflects ALL known pending work at all
    times.** An empty todo column while work is pending is a bug. Fix the board,
    then continue.
@@ -285,11 +300,14 @@ non-review tasks:
    second gate: it is the reason a parent sits in `in_review` after its last lane
    closed, and it is the one people misread as a bug in the pipeline.
 
-**`in_review` is a transition, not a state, for spawning purposes.** Lanes spawn only
-when a PATCH moves a task INTO `in_review` from something else. Consequences:
+**`in_review` spawns on the way in, from either direction.** Lanes spawn when a PATCH moves
+a task INTO `in_review` from something else, and also when a task is CREATED at
+`in_review`. Consequences:
 
-- A task **created** with `status:"in_review"` spawns nothing, ever, and sits there
-  forever. Verified. If you seeded a card that way, move it out and back in.
+- A task **created** with `status:"in_review"` gets its lanes there and then. It used to
+  spawn nothing ever and sit in `in_review` forever, showing a review in flight that nobody
+  was assigned, which is exactly the row a retro-init produces. If you have an old card
+  seeded that way it is still empty, since nothing backfills: move it out and back in.
 - PATCHing `in_review` onto a task already in `in_review` is a no-op for spawning, which
   is exactly what you want during rework (Part C, review scale).
 - Once a round is fully closed, moving the parent out of `in_review` and back in spawns
@@ -323,32 +341,37 @@ The board renders the badge WITH ITS AGE and turns it red past 15 minutes, but o
 the whole mechanism by which a builder that never started is visible instead of looking
 like work in flight.
 
-**Immutable after create.** The task PATCH allowlist is `title`, `description`, `status`,
-`notes`, `type`, `assignee`, `blocker`, `lane`, `assigneeType`, `dispatched`, `lanes`,
-and `addCommit` (append-only, one hash per call). Everything else in the body is
-ignored silently with a 200: `origin`, `commits`, `shortId`, `parentTaskRef` and the
-project. So origin and parentage are decided at `create_task` or not at all, and a
-mis-parented card has to be replaced rather than moved. A PATCH with nothing in the
-allowlist returns the row unchanged and logs no event.
+**Immutable after create, and it says so now.** The task PATCH allowlist is `title`,
+`description`, `status`, `notes`, `type`, `assignee`, `blocker`, `lane`, `assigneeType`,
+`dispatched`, `lanes`, and `addCommit` (append-only, one hash per call). The five things
+that cannot move after create refuse the write instead of absorbing it: `origin`,
+`commits`, `shortId`, parentage (`parentTaskRef`, `parentTaskId`) and the project
+(`project`, `projectId`) each 400 with the reason and the route that does the job, e.g.
+`commits — append-only: one hash per call via {"addCommit": "<sha>"}`. So "fix the origin"
+or "reparent this card" now fails loudly rather than reading as done, and a mis-parented
+card still has to be replaced rather than moved. Any OTHER unrecognised field is still
+ignored with a 200, and a PATCH with nothing in the allowlist returns the row unchanged and
+logs no event, so read back anything you are not sure the route accepts.
 
 **Nothing enforces `blocker` text on a `blocked` task.** A blocked row with a null
 blocker is accepted and tells your successor nothing. Always send both.
 
 ## B2 — Review lane lifecycle
 
-A dev task moves into `in_review`. For each lane in `project.pipeline.reviews` that the
-task's `lanes` selected, the server inserts a child task: `type: "review"`,
-`status: "todo"`, `lane` set to the lane key, `assignee` set to that lane's `manager`,
-`title` `"<label>: <parent title>"`, `origin` `"pipeline:<parent>"`. It logs a
-`spawned` event per lane. It refuses to spawn if any review child is still open, so a
-re-entry cannot double up a live round.
+A dev task arrives at `in_review`, by a PATCH or by being created there. For each lane in
+`project.pipeline.reviews` that the task's `lanes` selected, the server inserts a child
+task: `type: "review"`, `status: "todo"`, `lane` set to the lane key, `assignee` set to
+that lane's `manager`, `title` `"<label>: <parent title>"`, `origin` `"pipeline:<parent>"`.
+It logs a `spawned` event per lane, and refuses to spawn if any review child is still open,
+so a re-entry cannot double up a live round.
 
 Two edge cases:
 
 - selected lanes that resolve to nothing (an explicit `lanes: []`, or a selection whose
   lanes were later removed from the pipeline) log `no review lanes selected` and go
   straight to the advance check. With `autoAdvance` on, that means `in_review` closes
-  itself, which is why helper rows use `lanes: []`. With `autoAdvance` off it does NOT
+  itself, which is why helper rows use `lanes: []`, and it applies at create too: a row
+  FILED at `in_review` with `lanes: []` lands at `done`. With `autoAdvance` off it does NOT
   self-close; it logs `awaiting explicit push` and waits. The two are often stated as if
   `lanes: []` alone were enough. It is not.
 - no pipeline configured at all, and `lanes` absent, means the task simply rests in
@@ -359,6 +382,19 @@ or `GET /api/tasks?assignee=staff-engineer&open=true`, optionally `&lane=code-re
 The board also has a per-lane view with open counts, which is the fastest human check.
 Never hand-create a `type=review` task: the create route will happily accept one, and
 it will then sit in a queue with no parent gate behind it.
+
+**That read hands you a PAGE, and you have to check whether it is the whole set.** Both the
+tool and the route answer with `{total, returned, offset, limit, truncated, tasks}`, plus
+`nextOffset` and a `note` when rows were withheld; `limit` defaults to 1000 and maxes at
+1000, and a limit outside that range is a 400 rather than a silent clamp. `truncated` is
+the field that matters. If it is true, this is a sample: repeat the same query with
+`offset=nextOffset` until it is false, or read the whole project in one payload with
+`get_board` (`GET /api/p/:capId`). The rule generalises past this endpoint, and it is worth
+carrying: a paged answer states what it withheld, so treating a page as the whole set means
+ignoring a field that told you otherwise. This endpoint used to `.limit(200)` and return a
+bare array with nothing saying it had cut, and MRF answered 200 of 419 to the very read an
+agent resumes from, so a session told to resume from the API alone resumed from a sample.
+The trap is gone; the habit of reading the envelope before the rows is the part to keep.
 
 **Findings are feedback, not notes.** A lane files each finding as a feedback row on the
 PARENT (`POST /api/feedback` with `taskRef` the parent and `authorType: "agent"`). Those
@@ -422,14 +458,18 @@ three statuses:
 `triaged`, `accepted` and `in_progress` are silent, which is what makes them the right
 states for "on the board, author hears back on ship". Three details that bite:
 
-- the reply text is the `resolution` **in that same request body**, not whatever is
-  stored on the row. Resolve without a `resolution` and the author gets a bare
-  "FB-3 resolved." with nothing after it.
-- reject without a `resolution` and the server posts the literal
-  `no reason given (that is a bug, flag it)` into a human's Slack thread. Always give
-  the reason.
+- **all three replying statuses require a resolution and 400 without one.** The reply text
+  IS the resolution, so the server refuses to send a bare header or a developer placeholder
+  into a stakeholder's thread. The error names the author and says what to write.
+- the resolution it uses is the **effective** one: the `resolution` in this request body, or
+  the one already stored on the row if you send none. So the two-step way still works,
+  write the reason first and flip the status after, and re-sending the same status with no
+  body change is fine. What cannot happen is a reply with nothing in it.
 - a failed Slack post is logged as a project event, never raised. If you expected a
   reply, check the event log.
+
+In practice that reorders the work: decide the sentence, then apply the verb. You cannot
+close a row and write the reply afterwards.
 
 **Promotion into a task** is `resolvedTaskRef` on the feedback PATCH. It sets
 `resolvedTaskId`/`resolvedTaskShortId`, and if the row was `pending` with no explicit
@@ -439,8 +479,10 @@ reaches `done`, every row promoted onto it that is still `triaged`, `accepted` o
 `needs_clarification` are NOT picked up by that sweep, so a promoted-but-unanswered row
 goes quiet forever; resolve or reject it by hand.
 
-A `resolvedTaskRef` naming a task that does not exist is **silently ignored**: 200, no
-link, no error. Read back `resolvedTaskShortId` on the response.
+A `resolvedTaskRef` naming a task that does not exist is a **404**, and the row is not
+touched. It used to be ignored under a 200, which left a row promoted in name only: the
+ship sweep follows `resolvedTaskId`, found nothing, and the row sat open while the board
+said it was tracked. A typo now fails in your hand instead of at ship time.
 
 Note the deliberate asymmetry. Rows FILED ON a task (`taskId`) block its `done`. Rows
 PROMOTED ONTO a task (`resolvedTaskId`) are auto-resolved BY its `done`. A lane finding
@@ -449,8 +491,9 @@ is usually both: filed on the parent, promoted onto the rework.
 **Dedupe at triage.** Same defect from two authors is ONE task and two resolved rows
 pointing at it, so each author gets their own thread reply. Before creating any task from
 feedback, scan the open tasks for a card that already covers it
-(`GET /api/tasks?project=X&open=true`). A second card for one defect is worse than a
-missing one: two builders, two diffs, one file.
+(`GET /api/tasks?project=X&open=true`, and check `truncated` before you conclude there is
+no such card, per B2). A second card for one defect is worse than a missing one: two
+builders, two diffs, one file.
 
 ## B4 — Project lifecycle
 
@@ -620,9 +663,9 @@ verbatim into a human's thread.
 # Part D — Taking over, and recovering a mess
 
 Assume nothing from session memory. Cold-start from the API (the exact sequence is in
-`orchestrator-loop.md` section 7), read the charter as your standing instructions, then
-read the event log before you touch anything: it is the only place that explains why the
-board looks the way it does.
+`orchestrator-loop.md` section 10, Resume contract), read the charter as your standing
+instructions, then read the event log before you touch anything: it is the only place that
+explains why the board looks the way it does.
 
 Then run the audit, and keep running it at the end of every round:
 
@@ -641,9 +684,11 @@ The messes you will actually find, and what each one is:
 - **A parent stuck in `in_review` with every lane closed.** Almost always open feedback
   filed on it (B1 gate 2); the event log will say `holding` and name the rows. Otherwise
   `autoAdvance` is off and it wants an explicit push. It is not a pipeline bug.
-- **A task in `in_review` with no review children at all.** Either it was created at
-  `in_review` (spawning never ran), or the pipeline was empty when it landed. Move it out
-  and back in to spawn a round, or close it deliberately.
+- **A task in `in_review` with no review children at all.** With `autoAdvance` off, its
+  `lanes` resolved to nothing (an explicit `[]`, or lanes since removed from the pipeline)
+  and it is waiting for a push, not a reviewer. Otherwise no pipeline was configured when
+  it landed, or it is an old row created at `in_review` back when the create path did not
+  spawn. Move it out and back in to spawn a round, or close it deliberately.
 - **A task that grew a second round of lanes.** Someone pushed the parent out of
   `in_review` and back in during rework. Cancel the duplicate children rather than
   staffing them, note why on the parent, and keep the parent in `in_review` next time.
