@@ -33,8 +33,17 @@ only if genuinely blocking):
   assigned to
 - **Project-specific safety rules** (live keys, fixtures not to touch, deploy holds)
 - **Slack channel** to bind for feedback intake (optional; DMs always work)
-- **Subagent structure**: which review lanes (e.g. code-review, qa, design-qa,
-  regression) and who manages each lane — or explicitly none
+- **Shared local surface** (optional, defaults to NO; ask once, do not sell it):
+  does anyone off this machine need to SEE a local surface, e.g. a dev server, a
+  storybook, a docs preview? If yes, capture four things, because Step 2 needs all of
+  them: the **port and base path** the surface is served on (`http://127.0.0.1:5173/fe`,
+  not just the port), the **URL prefix** to publish it at, **which paths** should be
+  reachable from outside, and **who the link goes to**. If nobody has asked for it, the
+  answer is no and Step 2 skips the proxy
+- **Subagent structure**: which review lanes this project may spawn (code-review is the
+  baseline; add qa or design-qa only if the project will really have work that needs
+  them) and who manages each lane, or explicitly none. Configuring a lane does not mean
+  every task runs it; each task picks its own lanes (Step 6)
 - **Helper subagents**: which non-lane helpers this project needs (deploy, seeding,
   migrations, release notes, data pulls) — or explicitly none. Ask for each in registry
   shape, because the answer is copied straight into the registry in Step 2: a **name**,
@@ -70,10 +79,15 @@ Save the returned `boardUrl` and `capId` — the capability URL is what stakehol
 Then configure the **review pipeline** from the intake's subagent-structure answer
 (`set_pipeline` MCP tool, or PATCH `/api/projects/:ref` with
 `{pipeline: {autoAdvance, reviews: [{lane, label, manager}]}}`): one lane per review
-kind, each with a `manager` agent name. The server then auto-spawns those lanes as
-`type=review` subtasks whenever a dev task moves to `in_review`, gates `done` on the
-lanes closing, and (with `autoAdvance`, the default) closes the parent when the last
+kind, each with a `manager` agent name. The server then auto-spawns one `type=review`
+subtask per lane the task itself selected whenever a dev task moves to `in_review`, gates
+`done` on the lanes closing, and (with `autoAdvance`, the default) closes the parent when the last
 lane does. Skip the pipeline only if intake explicitly chose "none".
+
+The pipeline is the menu, not the plan. Configuring qa and design-qa here does not mean
+tasks should run them — every task states its own `lanes` at `create_task`, and the
+normal answer is one lane. Write that expectation into the charter so a fresh session
+inherits it (the wording in Step 6 is the version to copy).
 
 Next, register the **agent registry** (`set_agents` MCP tool, or PATCH
 `/api/projects/:ref` with `{agents: [{name, kind, brief, trigger?}]}`). One entry per
@@ -92,6 +106,62 @@ the registry: the server logs a `pipeline manager X not in agent registry` warni
 otherwise (warn-only, the write still succeeds). Every agent then reads the registry
 alongside the charter via `get_project_context` (GET `/api/projects/:ref/context`), and
 it is served in the board payload too (GET `/api/p/:capId`).
+
+### Register the shared surface, if intake asked for one
+
+Only if the shared-surface answer was yes. `set_proxy` (or PATCH `/api/projects/:ref`
+with `{proxy: {prefix, target, public, enabled}}`) publishes one local dev server at
+`<baseUrl>/<prefix>/`, the same public origin the board link uses. The config is
+replaced wholesale on every call, and the server pushes it into the proxy route table
+and re-reconciles at every change and at boot, so a push that failed while the proxy was
+down gets repaired rather than left as drift.
+
+Configure it with the safety properties in front of you, because this route has no login:
+
+- **Default is `enabled:false`.** Configure the route, read back what it exposes, then
+  flip `enabled:true` in a second call. Do not share and then narrow.
+- **Anyone who reaches the route reaches the target.** There is no auth in front of it and
+  no per-stakeholder access. The URL is not the access control: the board link carries a
+  21-char random `capId`, so it is genuinely unguessable, but the proxy prefix is a short
+  word a human chose, so `BASE_URL/<prefix>/` is guessable by anyone who knows the domain.
+  The `public` patterns are the boundary; the prefix is not a credential.
+- **The prefix is the URL segment and the routing key.** It must be a non-empty string of
+  `[A-Za-z0-9_-]` — anything else is rejected 400 — and `p`, `api`, `files` and `-` are
+  reserved, because they are the server's own paths and a prefix there would shadow the
+  board itself.
+- **The `public` patterns ARE the boundary**, and they are not regexes. Each entry is a
+  literal path starting with `/`, matching as a prefix by default (`/assets/`), with a
+  trailing `$` for an exact path (`/$` is the root and nothing else) and at most one `*`
+  matching inside a single path segment (`/assets/*.js$`). Regex characters (`^`, `(`,
+  `[`, `+`, `\`, `.*`) are rejected 400 with the form spelled out. Patterns match the path
+  AFTER the prefix is stripped: for a project at prefix `dar`, the public request
+  `/dar/assets/app.js` is matched as `/assets/app.js`, so write `/assets/` and never
+  `/dar/assets/` — the prefixed form matches nothing and the route serves nothing. Omit
+  `public` and nothing is reachable from outside; `["/"]` exposes every path. Local
+  requests are never filtered, so "it works on my machine" tells you nothing about what a
+  link-holder sees. Check by fetching the public URL.
+- **The target must be a dev server on this machine**, and the path is part of it. A Vite
+  app served at base `/fe` needs `http://127.0.0.1:5173/fe`; without the path Vite gets
+  `/` and 302s to `/fe/` forever through the prefix strip. Vite's `base` has to match the
+  prefix. The host must be a literal loopback address, or the one name that is special-cased:
+  `localhost`, any `127.x.x.x`, `0.0.0.0`, `::1`, `::` and the IPv4-mapped spellings of those
+  are accepted. Public addresses, LAN and private ranges, link-local (`169.254/16`,
+  `fc00::/7`, `fe80::/10`) and every other DNS name are rejected 400 — a literal address
+  cannot leave this host, while a name is resolved at request time by a resolver we do not
+  control.
+- **Tunneled requests carrying `%2f` or `%5c` are refused outright** (403), because the
+  proxy forwards the path verbatim and dev servers decode before resolving `..`, so an
+  encoded slash would walk out of an allowed prefix upstream. A legitimately encoded slash
+  is refused too. Do not build a shared surface that needs one.
+- **The target is never on the public board.** GET `/api/p/:capId` reports the prefix,
+  the patterns and `targetRedacted: true`; the real host:port is only on
+  `get_project_context`, which is local-only. Keep it that way in anything you write.
+- **Teardown is yours.** When the project closes, withdraw the route: `set_proxy` with
+  `enabled:false` keeps the config and takes the URL down, and PATCH
+  `/api/projects/:ref` with `{"proxy": null}` clears it entirely. A finished project
+  leaving a live route is a leak with nobody watching it.
+
+Tell the user the shared URL explicitly, alongside the board URL, and say who it is for.
 
 ## Retro-init — project already underway
 
@@ -124,15 +194,19 @@ Figma inventory, codebase state, prior session transcripts. Each returns a struc
 list of work items with evidence.
 
 Promote their output into Darbar: `create_task` per item (streams as parent tasks,
-concrete items as subtasks via `parentTaskRef`), origins recorded, known blockers set.
-Cover every stream from the intake's backlog-scope answer; anything pending that you
-know about but don't file is a bug. Log a `project bootstrapped` event.
+concrete items as subtasks via `parentTaskRef`), origins recorded, known blockers set,
+and `lanes` stated on every row (`["code-review"]` unless the rules in Step 6 say
+otherwise; parent stream rows that carry no diff get `[]`). Cover every stream from the
+intake's backlog-scope answer; anything pending that you know about but don't file is a
+bug. Log a `project bootstrapped` event.
 
 ## Step 5 — Announce in Slack
 
 If a channel was bound: draft the announcement as Gabbar (board link + "file feedback
-by DMing me or mentioning me with a task id like `PREFIX-12`"). **Show the draft and
-wait for explicit approval before sending** (standing Slack rule).
+by DMing me or mentioning me with a task id like `PREFIX-12`"). If a shared surface was
+published, put its URL next to the board link and say what it is, so nobody has to ask
+where to look. **Show the draft and wait for explicit approval before sending**
+(standing Slack rule).
 
 ## Step 6 — Become the orchestrator (strict orchestrate-only)
 
@@ -155,14 +229,29 @@ explicitly says so:
   those lanes do. `trigger` is a hint, not a rule — you decide
   when to fire (e.g. deploy-devx after a task's lanes close, and only if the change is
   worth a deploy).
-- **Reviews**: the server auto-spawns review-lane subtasks on `in_review`. Choose
-  each task's lanes by judgment at `create_task` time via `lanes` (code-review for
-  code, qa for behavior, design-qa only for UI; `[]` = none; omit = all configured
-  lanes; unknown keys 400, and the selection freezes once the review flow starts).
+- **Reviews**: the server auto-spawns review-lane subtasks on `in_review`, so the lanes
+  are decided when you file the task, not when it lands. **Always state `lanes`
+  explicitly at `create_task`.** Omitting the field spawns every configured lane, which
+  is how one routine feature ate three review agents and three re-verification rounds.
   Spawn lane-manager subagents to drain their queues
   (`GET /api/tasks?assignee=<manager>&open=true`), review the work, file findings via
   `POST /api/feedback` (authorType `agent`), and close their lanes. The done-gate +
-  `autoAdvance` handle parents.
+  `autoAdvance` handle parents. Picking the lanes:
+  - Default is `lanes: ["code-review"]`. One lane is the normal answer for ordinary work.
+  - Add `qa` only when reading the diff cannot answer the question: a live data
+    migration is the standard case, because the code can look right while the migrated
+    rows are wrong.
+  - Add `design-qa` only for a UI surface a human will actually look at.
+  - Helper and bookkeeping rows get `lanes: []`, which makes `in_review` self-closing.
+  - The full set plus re-verification is for work that can hurt someone: the public
+    front door, anything that changes exposure. Reserve it for that, not for habit.
+  - Unknown lane keys 400, and the selection freezes once the review flow starts, so a
+    lane you skipped is a decision you keep.
+- **One review round is the norm.** A lane comes back SHIP or BLOCK. On BLOCK, fold
+  every finding you accept into ONE builder, and verify that rework with tests plus a
+  typecheck rather than a fresh lane. Sending the same change through another review
+  round needs a reason beyond wanting to be thorough. Findings that are real but not
+  blocking go on a polish backlog as their own tasks; they never sit on a ship gate.
 - **Feedback**: drain `next_pending_feedback` on a self-paced loop; triage every item:
   rework an existing task, `create_task` a new one, reject with a reason, or ask for
   clarification (all via `resolve_feedback`, which auto-replies in the author's
@@ -174,6 +263,10 @@ explicitly says so:
   including human tasks. A fresh session must be able to resume from the API alone.
 - **Updates**: follow the cadence chosen at intake; Slack updates always draft-first
   via Gabbar.
+- **Shared surface**: if one is published, it is yours for the life of the project. Keep
+  the `public` list as narrow as the surface actually needs, and withdraw the route when
+  the project closes (`set_proxy` `enabled:false`, or `{"proxy": null}` to clear it).
 
-Finish the bootstrap by reporting: board URL, task count seeded, branches cut,
-stakeholders onboarded, and anything from recon that needs the user's call.
+Finish the bootstrap by reporting: board URL, the shared surface URL if one was
+published, task count seeded, branches cut, stakeholders onboarded, and anything from
+recon that needs the user's call.
