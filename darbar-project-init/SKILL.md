@@ -81,8 +81,8 @@ only if genuinely blocking):
 
 ## Step 2 — Register the project
 
-POST `http://localhost:4899/api/projects` with name, prefix, repos, stakeholders
-(`[{name, slackUserId, role}]`, resolve handles to user ids via Slack API if needed),
+`create_project` (POST `http://localhost:4899/api/projects`) with name, prefix, repos,
+stakeholders (`[{name, slackUserId, role}]`, resolve handles to user ids via Slack API),
 `slackChannel`, and a **charter**.
 
 `pipeline`, `agents` and `proxy` go in the SAME call. Registering a project is one POST,
@@ -452,17 +452,30 @@ feedback tab carries the full human trail.
 **A reopened clarification row does not carry the answer.** When the author replies in the
 thread, Gabbar's reopen sends `{status: "pending"}` and nothing else, so the row comes back
 into your queue with its ORIGINAL body and with your own question still sitting in
-`resolution`. A feedback body is immutable: the PATCH route writes only `status`,
-`resolution`, `type` and `resolvedTaskRef`, and nothing anywhere appends to `body`
-(verified: a `body` in the PATCH is ignored with a 200). The answer exists only in Slack.
+`resolution`. Nobody rewrites what a reporter wrote: the PATCH route writes only `status`,
+`resolution`, `type` and `resolvedTaskRef`, and it refuses `body` and `attachments` BY NAME
+rather than absorbing either under a 200. The answer exists only in Slack.
 Go and read it, via the row's `slack.channel` and `slack.ts`, before you re-triage. A row
 that reappears with no visible change is the normal case, not a broken reopen.
 
-And a follow-up can still arrive as a **separate row**. Gabbar files a new row for a
-follow-up on an existing one rather than mutating it (that is what DAR-182 exists to
-change; appending is intended, not built). So expect the duplicate and dedupe it: one
-defect is one task, with both rows resolved pointing at it. Never re-file a reopened row
-as a second card yourself.
+**More of something already filed is an APPEND, not a second row.** A screenshot for a
+finding already on the board, a correction, another screen it also happens on: that is one
+defect and it stays one row. `append_to_feedback` (Gabbar's own `add_to_feedback`, POST
+`/api/feedback/:shortId/append`) adds an attributed line at the end of the body and unions
+any attachments, leaving the reporter's own words and the row's id and status exactly where
+they were. Filing a second row instead puts one defect in the triage queue twice and leaves
+somebody deduping what was never two things. Three things the route deliberately will not
+decide for you, because each is a judgement rather than a mechanism: it is not idempotent,
+so a repeat adds a second attributed line and says so; an append onto a resolved or
+rejected row succeeds and warns, because that addition now sits in no triage queue; and
+reopening stays a separate act you make on purpose (`resolve_feedback {pending}`), which
+also puts the task the row was filed on back under the done gate. Exact bodies, the
+`note`-not-`body` trap and the three warning strings are in orchestrator-loop.md, 6 and 7.
+
+A follow-up can still arrive as a **separate row** when somebody reports it fresh rather
+than adding to what is there. Expect the duplicate and dedupe it: one defect is one task,
+with both rows resolved pointing at it. Never re-file a reopened row as a second card
+yourself.
 
 **Which states reach the author.** The server, not the bot, posts the reply, and only for
 three statuses:
@@ -743,6 +756,12 @@ Then run the audit, and keep running it at the end of every round:
 - No dispatch stamp older than 15 minutes on a `todo`/`backlog` row.
 - Nothing silently gated: `in_review` parents whose lanes all closed, `blocked` rows
   whose blocker has cleared, feedback rows sitting in `accepted` with nobody on them.
+- Nothing held that nobody has acted on. Gabbar parks what its stakeholder gate refused
+  instead of dropping it, and a held item is not feedback in any sense that matters here:
+  it never reaches Mongo, so no feedback query returns it and no check above sees it. It is
+  visible in exactly two places, the board's dashed held band beside the feedback tab and
+  `list_parked` (route in orchestrator-loop.md section 1), and both are local-only on
+  purpose because those are unvouched words carrying somebody's Slack id.
 - If the project shares a surface, `proxy` and `proxyPublished` still agree.
 - Log anything worth a trace as an event.
 
@@ -774,6 +793,15 @@ The messes you will actually find, and what each one is:
   exercising the behaviour, and reopen the card if it is not live.
 - **Feedback rows nobody replied to.** Anything sitting at `pending` for a long time is a
   human waiting. Drain oldest first, and give every row exactly one verb.
+- **Somebody says they reported a thing that is not on the board.** Check the held lane
+  before you conclude it was lost: a sender the project has not vouched for is refused at
+  the gate and parked, which looks identical to nothing having been sent. `cause` says
+  which it was. `stakeholder_gap` is a decision waiting on a human, usually
+  `add_stakeholder` for that person, after which the sweep promotes what was being held
+  for them; `outage` means darbar itself could not answer the gate and resolves on retry.
+  Read the `kind` before promoting anything: a report becomes a new row, an addition
+  belongs on the row named in `appendTo` and filing it fresh rebuilds the duplicate the
+  append route exists to prevent.
 - **A live proxy route for finished work.** Compare `proxy` with `proxyPublished`,
   withdraw, and re-check that the withdrawal actually landed.
 - **Agents mid-flight after your own session died.** Check which actually failed before
