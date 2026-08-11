@@ -1,6 +1,6 @@
 ---
 name: darbar-project-init
-description: Bootstrap a Darbar-tracked project AND run it. Day-zero OR retro-init of work already underway ("put this session under darbar", "register this project"). Interviews for context (mandatory, includes subagent structure + backlog scope + update cadence), registers the project + charter in Darbar, cuts branches, seeds the task tree so the board carries ALL known pending work, binds the Slack channel for Gabbar intake, then turns the current session into a strict orchestrate-only manager. Carries the full operating manual: every task / review-lane / feedback / project / agent lifecycle as the engine actually implements it, the standing orchestration doctrine, and how to recover a project someone else left in a mess. Use when starting a new agent-orchestrated project ("init project", "new darbar project", "spin up a project"), when bringing an in-flight session/effort under Darbar tracking, or when taking over an existing Darbar project.
+description: Bootstrap a Darbar-tracked project AND run it. Day-zero OR retro-init of work already underway ("put this session under darbar", "register this project"). Interviews for context (mandatory, includes subagent structure + backlog scope + update cadence), registers the project + charter in Darbar, cuts branches, seeds the task tree so the board carries ALL known pending work, binds the Slack channel for Gabbar intake, then turns the current session into a strict orchestrate-only manager. Carries the full operating manual: every task / review-lane / feedback / project / agent lifecycle as the engine actually implements it, the standing orchestration doctrine, how to recover a project someone else left in a mess, and (Part 0) which rules the engine actually refuses versus which ones only sit in a document, including the writes that answer 200 and should not, the written pre-flight before every dispatch, and the two rules nothing here can enforce. Pairs with the darbar-tick skill, which is one maintenance pass over the board on a /loop timer. Use when starting a new agent-orchestrated project ("init project", "new darbar project", "spin up a project"), when bringing an in-flight session/effort under Darbar tracking, or when taking over an existing Darbar project.
 ---
 
 # Darbar Project Init
@@ -8,9 +8,11 @@ description: Bootstrap a Darbar-tracked project AND run it. Day-zero OR retro-in
 You are bootstrapping a project into Darbar (the self-hosted tracker at
 `~/fafo/darbar`, API on `http://localhost:4899`) and then running it.
 
-This file is the whole job, in four parts. Read all of it before you start
+This file is the whole job, in five parts. Read all of it before you start
 dispatching; the bootstrap is the short part.
 
+- **Part 0** what binds: which rules the engine refuses, which you must write down, and
+  the two this file cannot enforce at all. Read it even on a re-read.
 - **Part A** bootstrap: intake, registration, branches, seeding, announcement.
 - **Part B** the engine: every lifecycle exactly as the server implements it,
   including the rules that surprise people and what happens when you break them.
@@ -23,6 +25,113 @@ The companion reference is `~/fafo/darbar/docs/orchestrator-loop.md`. It carries
 the wire-level detail: exact routes, request bodies, field allowlists, the
 cold-start command sequence. Rules live here; commands live there. When you need
 to type something, open it.
+
+# Part 0: What binds, and what only describes
+
+Read this even if you have read the rest. It is the part that was missing.
+
+On 2026-08-10, with this whole file loaded, one orchestrator session broke six of its own
+standing rules in a day. It wrote code twice under strict orchestrate-only. It cleared
+`lanes` on a row while an agent was mid-flight on it. It PATCHed a parent back to
+`in_review` after a rework twice, spawning a duplicate review round each time, having
+personally written down that exact trap the same morning. It let 43 probe rows pile up on
+the live board across three sweeps. It went idle twice until it was asked why. It chained
+`git commit` behind a repo-wide `tsc`, twice, where the failure printed the previous
+commit and read exactly like success.
+
+Every one of those was already documented, in this file, in the sentences you just read.
+So the conclusion is not that the manual needs another paragraph. It is that **a rule
+written in a document is the weakest form a rule can take**, and each of ours belongs in
+the strongest tier it can reach.
+
+## The three tiers
+
+**Tier 1, the engine refuses.** The only kind that survives a distracted session, because
+it does not depend on anybody remembering anything. Already here: `done` over an open
+review child, `done` over open feedback, `lanes` after the review flow starts, the five
+immutable task fields, an unknown lane key, a replying feedback status with no resolution,
+a lane removal that would strand open work, publishing a share without the prefix echoed
+back. Notice what those have in common. Each is a write the server can SEE is wrong from
+the row in front of it.
+
+Three more belong in this tier and are not there yet. All three were verified against the
+running server on 2026-08-11, on a throwaway project, and all three answer 200:
+
+- **`lanes` can still be edited while a task is `in_progress`.** The frozen set is
+  `in_review`, `qa`, `done`, `cancelled`, and `in_progress` is not in it. So an
+  orchestrator can clear `lanes` to `[]` under a builder that is holding the row, silently,
+  and the full damage lands later: when that builder reports `in_review`, an empty
+  selection with `autoAdvance` on self-advances the row straight to `done`, unreviewed.
+  Verified end to end. Note that `dispatchedAt` is NOT the liveness signal for these rows,
+  because the builder's own status PATCH clears the stamp. The status is the signal.
+- **Re-entering `in_review` after a closed round spawns a whole fresh round.** The server
+  refuses to spawn while a round is OPEN, and asks nothing once it has closed. So the exact
+  documented mistake, pushing a parent out and back in during rework, is a 200 that quietly
+  orders a second review. Verified: a parent with one closed `code-review` child, PATCHed
+  back to `in_review`, came out with two.
+- **`POST /feedback` takes any author, and defaults a missing one to the literal string
+  `unknown`.** The stakeholder list is right there on the project and the route does not
+  consult it. That is precisely the signature of the rows that had to be purged, and
+  the inconsistency is stark: the APPEND route requires an author and 400s without one,
+  on the grounds that an addition nobody is named for is a silent rewrite wearing a label.
+  The create door is the weaker one, and it is the one that made the mess.
+
+Until those land, they are on you, which is the whole reason this section says so rather
+than trusting you to infer it from Part B.
+
+**Tier 2, you have to write it down before you act.** The pre-flight below. Weaker than a
+refusal, and its only mechanism is that producing a token is harder to skip than recalling
+a rule. Be honest about that: if you find yourself dispatching without writing it, it has
+failed, and the answer is to move the rule into tier 1, not to reword this paragraph.
+
+**Tier 3, a sweep runs on a clock and prints what is wrong.** Not you remembering to
+audit. The sweep is `darbar-tick` and the schedule is `/loop`. It catches the classes that
+are invisible in the moment and obvious in aggregate: probe litter, duplicate rounds, held
+parents, stale dispatches, a dead gabbar. It found all three duplicate rounds on the DAR
+board in a quarter of a second, including one from two days earlier that nobody had noticed.
+
+## The pre-flight
+
+Four lines, written out, before every dispatch. Not considered. Written.
+
+1. **Row.** Which shortId, and is it `todo` with nobody on it?
+2. **Lanes.** What did this row freeze at? If its status is anything but `backlog`, `todo`
+   or `blocked`, I am not touching `lanes` at all.
+3. **Files.** Which files, and is any other in-flight agent inside them?
+4. **Model.** sonnet or opus, and the reason in four words.
+
+And two before any PATCH you are about to make on a row that is not yours:
+
+- The row is `in_progress`. Then the answer is no. The agent owns its own status.
+- The row is `in_review` and its lanes have closed. Then do not push it out and back in.
+  Leave it there; resolving the feedback filed on it is what closes it (B2).
+
+And one for the shell, because it is the same failure in a different window:
+
+- **Never chain a check and a write in one call.** `tsc && git commit && git push` prints
+  the previous commit and the word pushed when the check fails, which reads as success.
+  Run the check, read its exit code, then commit as a separate call, then `git log -1
+  --stat` and read the sha you just made.
+
+## What a document cannot bind, stated plainly
+
+Two of the six failures above are not reachable from this file or from the engine, and
+pretending otherwise is how the next session inherits the same problem.
+
+**"You write no code" cannot be enforced by prose.** The server sees board writes, not
+file writes; there is nothing in Mongo that distinguishes an orchestrator's edit from a
+builder's. The only thing that actually binds it is a harness-level `PreToolUse` deny on
+`Edit`, `Write` and `NotebookEdit` in the orchestrator session. That is a change to Raj's
+Claude Code settings, so it is his call and his config, not something a skill can assert.
+Ask for it; do not work around it.
+
+**The `&&`-chained commit is the same shape.** No board rule reaches a shell pipeline. A
+`PreToolUse` matcher on Bash refusing a compound command containing `git commit` or
+`git push` would bind it. Short of that it is a habit, and the pre-flight line above is a
+reminder, which is exactly the weak thing this section is about.
+
+The rest of Part C is real and worth keeping. Just read it knowing which tier each rule is
+in, and when you catch yourself about to break one, ask whether it could have been a 409.
 
 ## Preconditions
 
@@ -656,6 +765,17 @@ each, on the board and in anything you write: if a count excludes cancelled rows
 where the count is, because a number whose definition lives in someone's head is a number
 that will be read wrong.
 
+**And the board does not wait to be asked.** Twice in one day it sat still until Raj said
+"why did you stop" and "do all the tasks". A queue that only moves when the stakeholder
+prompts it is not being managed, it is being escorted. Arm the tick before you go quiet:
+`/loop /darbar-tick`, which is the `darbar-tick` skill on the existing `/loop` scheduler.
+It sweeps feedback, held reports, undispatched todos, open lanes, held parents, stale
+dispatches, duplicate rounds, probe litter and the three processes, in one shell call that
+prints nothing when the board is fine. Its budget, its human gate and its stop conditions
+live in that skill; the one thing to carry here is that a loop with no stop condition is
+tokens spent with nobody in the room, so it has several, and they are read off the sweep
+output rather than remembered.
+
 **Strict orchestrate-only.** You write no code. Not a one-line fix, not a config tweak,
 not "while I am here". Every task goes to a subagent, helpers and bookkeeping included,
 and every subagent run has its own board row. This is not ceremony: the moment you start
@@ -747,7 +867,11 @@ Assume nothing from session memory. Cold-start from the API (the exact sequence 
 instructions, then read the event log before you touch anything: it is the only place that
 explains why the board looks the way it does.
 
-Then run the audit, and keep running it at the end of every round:
+Then run the audit, and keep running it at the end of every round. The mechanical half of
+it is `python3 ~/fafo/skills/darbar-tick/sweep.py` (the `darbar-tick` skill), which is
+read-only, takes under a second on a 200-row board, and prints only what is wrong. Run it
+first; it covers the mechanical items below, and what is left is the judgment ones, which
+are the first bullet and the second:
 
 - Every known pending piece of work has a card, including human-owned work. Anything you
   learned this round that is not on the board gets filed before the round ends.
