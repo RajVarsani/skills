@@ -25,6 +25,8 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 
 API = 'http://localhost:4899/api'
@@ -34,6 +36,39 @@ STATE = pathlib.Path(os.environ.get('STATE', os.path.expanduser('~/.darbar-tick.
 PROBEISH = re.compile(r'probe|throwaway|delete me|scratch|\btest\b|\btmp\b', re.I)
 OPEN_FB = ('pending', 'triaged', 'accepted', 'in_progress')
 CLOSED = ('done', 'cancelled')
+
+# DAR-250. The tunnel is the only part a stakeholder ever sees, and a dead one is invisible
+# to a process check (ngrok/zrok can die while the local api and proxy both still look up).
+# Short timeout: a dead tunnel must cost the sweep a few seconds, never hang it.
+TUNNEL_TIMEOUT_S = 6
+# 30s pulse from bot.ts, ~10x margin for a GC pause or a slow LLM turn blocking the event
+# loop for a beat — still two orders of magnitude faster than the 21h51m that went
+# undetected in the incident this fixes.
+GABBAR_STALE_S = 300
+GABBAR_HEARTBEAT = pathlib.Path(os.path.expanduser('~/fafo/darbar/data/gabbar-heartbeat.json'))
+
+
+def base_url():
+    if os.environ.get('BASE_URL'):
+        return os.environ['BASE_URL']
+    try:
+        for line in pathlib.Path(os.path.expanduser('~/fafo/darbar/.env')).read_text().splitlines():
+            if line.startswith('BASE_URL='):
+                return line.split('=', 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+
+def tunnel_get(base, path):
+    # zrok shows an interstitial to anything that looks like a browser unless told not to;
+    # without this header we'd be asserting the interstitial renders, not the board.
+    req = urllib.request.Request(f'{base}{path}', headers={'skip_zrok_interstitial': 'true'})
+    try:
+        with urllib.request.urlopen(req, timeout=TUNNEL_TIMEOUT_S) as r:
+            return r.status, r.read(2000)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(200)
 
 out = []
 
@@ -61,12 +96,54 @@ if not gabbar:
 if not proxy:
     out.append('DOWN proxy 4800 - any published shared surface is a dead link')
 
+# gabbar's SLACK SOCKET, not its process (DAR-250): the process looped ECONNREFUSED for
+# 21h51m after the socket died, staying alive and pgrep-healthy the whole time while nobody
+# messaging it got a reply. bot.ts touches this file only while its SocketModeClient
+# believes it is connected, so a stuck reconnect loop stops the touches and the mtime goes
+# stale. Only meaningful if the process is even up — "DOWN gabbar" above covers the rest.
+hb_note = 'n/a (proc down)'
+if gabbar:
+    try:
+        hb_age = time.time() - GABBAR_HEARTBEAT.stat().st_mtime
+        hb_note = f'{int(hb_age)}s'
+        if hb_age > GABBAR_STALE_S:
+            out.append(f'STALE gabbar heartbeat {int(hb_age)}s (>{GABBAR_STALE_S}s) - process is up '
+                       'but its slack socket has not reported connected recently; likely stuck reconnecting')
+    except FileNotFoundError:
+        hb_note = 'MISSING'
+        out.append('MISSING gabbar heartbeat - process is up but has never reported a connected socket; '
+                   'check apps/gabbar/src/bot.ts started cleanly')
+
 # ---- 2. reads: four calls, whole board in one of them ----
 projects = get(f'{API}/projects')
 me = next((p for p in projects if p['prefix'] == PROJ), None)
 if not me:
     print(f'NO PROJECT {PROJ} on this server')
     sys.exit(2)
+
+# the tunnel: fetch a REAL board through the PUBLIC url, not a process check. This is the
+# gap that let ngrok die silently while local api/proxy both stayed healthy.
+burl = base_url()
+if not burl:
+    out.append('TUNNEL CONFIG MISSING - no BASE_URL in ~/fafo/darbar/.env, cannot verify the public url')
+else:
+    try:
+        status, body = tunnel_get(burl, f'/p/{me["capId"]}')
+        if status != 200 or b'<title>Darbar' not in body:
+            out.append(f'TUNNEL BOARD BROKEN {burl}/p/{me["capId"]} - got {status}, not the board page a stakeholder expects')
+    except Exception as e:
+        out.append(f'DOWN tunnel {burl} ({e}) - the board is unreachable at the only url a stakeholder has')
+    try:
+        # /api/tasks is NOT on the public allowlist. 200 here is a security regression, not a finding
+        # to note quietly - it means raw task data is exposed to anyone with the tunnel url.
+        status, _ = tunnel_get(burl, '/api/tasks')
+        if status == 200:
+            out.append(f'SECURITY REGRESSION: {burl}/api/tasks returned 200 through the public tunnel - it must 403')
+        elif status != 403:
+            out.append(f'TUNNEL /api/tasks unexpected status {status} through {burl} (wanted 403)')
+    except Exception as e:
+        out.append(f'DOWN tunnel /api/tasks check {burl} ({e})')
+
 board = get(f'{API}/p/{me["capId"]}')
 ctx = get(f'{API}/projects/{PROJ}/context')
 tasks, feedback = board['tasks'], board['feedback']
@@ -145,7 +222,16 @@ if junk:
     names = sorted({(f.get('author') or 'unknown') for f in junk})[:6]
     out.append(f'UNVOUCHED FEEDBACK AUTHORS {len(junk)} open rows by {", ".join(names)} '
                f'- first {junk[0]["shortId"]}; the pending queue is the orchestrator inbox, so probe rows bury real ones')
-is_stray = (lambda p: p['prefix'].upper() not in LIVE) if LIVE else (lambda p: bool(PROBEISH.search(p['name'])))
+# A project is litter only if it LOOKS like litter. Absence from LIVE used to be enough on its
+# own, which meant every genuinely new project read as garbage the moment another session made
+# one: MRFIII (5 stakeholders, 4 repos, a 9KB charter) was reported as throwaway within the hour
+# of its creation, and REV — 6 repos, a real charter, no stakeholders — every tick before that.
+# LIVE still SUPPRESSES, but it may no longer ACCUSE. A probe has none of the substance below.
+def is_stray(p):
+    if p['prefix'].upper() in LIVE:
+        return False
+    substance = bool(p.get('repos')) or bool(p.get('stakeholders')) or len(str(p.get('charter') or '')) > 400
+    return bool(PROBEISH.search(p['name'])) or not substance
 strays = [p for p in projects if p['prefix'] != PROJ and is_stray(p)]
 if strays:
     out.append('THROWAWAY PROJECTS LEFT ON THE SERVER: '
@@ -168,7 +254,7 @@ except Exception:
 
 if not out:
     print(f'CLEAN {PROJ} | {len(dev)} rows, {len(inflight)} in flight | '
-          f'api {apipid} gabbar {gabbar[0]} proxy {proxy[0]} | clean streak {streak}')
+          f'api {apipid} gabbar {gabbar[0]} hb {hb_note} proxy {proxy[0]} tunnel ok | clean streak {streak}')
     sys.exit(0)
 print(f'{PROJ} | {len(inflight)} in flight | {len(out)} finding(s)'
       + (' | SAME AS LAST TICK, nothing you did cleared it' if repeat else ''))
