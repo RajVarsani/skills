@@ -860,6 +860,61 @@ AI-tell phrasing in anything that reaches Slack, which includes Gabbar replies, 
 auto-resolutions, and the resolution sentences you write, because those get posted
 verbatim into a human's thread.
 
+## Token economics — dispatch is not free
+
+Raj pays per token on an API key, and asked twice in one week to stop burning them. So
+this is a standing constraint on orchestration, not a nicety.
+
+**Know what a subagent actually costs.** A subagent does NOT inherit your conversation. It
+starts on a fresh context: its system prompt, the delegation prompt you write, every
+CLAUDE.md in scope, and any skills preloaded into it. Only its final message comes back to
+you; every file it read, every grep, every dead end stays in its context and never touches
+yours. Two consequences, and they point in opposite directions:
+
+- It is a **context firewall**. Exploration, audits and searches belong in an agent because
+  the raw output never lands in your window. Doing a wide grep inline is the expensive way.
+- It is a **spend multiplier**. Anthropic measured multi-agent runs at roughly **15x** the
+  tokens of a single thread, and found token volume alone explains about 80% of the quality
+  difference. You are buying quality with money, so buy it deliberately.
+
+**The decomposition test, before every fan-out.** Multi-agent earns its multiplier only when
+the work splits into genuinely independent parallel paths. If the parts share context, or
+depend on each other's output, or are really one edit to one file, you pay 15x and earn
+nothing. Most darbar rows are one file and one edit: those are inline work or a single
+agent, never a fan-out. Fan out for breadth (many files, many repos, many independent
+questions), never for ceremony.
+
+**The rules that follow, in order of how much they save:**
+
+1. **One agent per file, not one per task.** Two tasks touching the same file are one
+   brief. Every extra agent re-reads that file from scratch, and they will conflict.
+2. **Tier the model.** Sonnet where the WHAT is specified and verification is mechanical.
+   Opus only where judgment under ambiguity IS the job: adversarial review, security and
+   data-loss paths, fix-the-class-not-the-instance, genuine design trade-offs. Omitting the
+   model field silently runs a triage agent on Opus. State the tier in the dispatch so a
+   wrong one is visible afterwards.
+3. **Lanes match stakes.** `lanes: []` for anything a builder already proved. One
+   `code-review` lane by default, one round. A one-line change gets no lane and often no
+   row of its own. Ticket the ask, not each edit.
+4. **Briefs point, they do not paste.** Name the file and the line. A brief that pastes a
+   file costs those tokens on the way in AND leaves the agent no reason to read the current
+   version, which is how agents act on stale content.
+5. **Read narrowly.** `offset`/`limit` on Read, `--oneline --since` on git, a pattern on
+   console reads. Never cat a file to learn one line of it.
+6. **Never re-derive what the board already knows.** The board is the shared memory. A
+   status question is a shell call against the API, not a re-read of the conversation.
+
+**Measure rather than guess.** `/context` shows what is occupying the window right now, and
+`/usage` attributes recent spend to skills, subagents, plugins and individual MCP servers,
+flagging anything above about 10%. Run one of them before concluding that something is
+expensive; the thing you suspect is usually not the thing.
+
+**The shell is free, the context window is not.** This is the same principle `darbar-tick`
+is built on: a board scan that runs in `sweep.py` and prints 88 bytes costs nothing, while
+the same scan done by reading 200 task rows into the window costs every turn afterwards
+too, because it stays there. Prefer a script that prints a verdict over a model that reads
+evidence, wherever the verdict is mechanical.
+
 # Part D — Taking over, and recovering a mess
 
 Assume nothing from session memory. Cold-start from the API (the exact sequence is in
