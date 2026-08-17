@@ -54,30 +54,33 @@ a lane removal that would strand open work, publishing a share without the prefi
 back. Notice what those have in common. Each is a write the server can SEE is wrong from
 the row in front of it.
 
-Three more belong in this tier and are not there yet. All three were verified against the
-running server on 2026-08-11, on a throwaway project, and all three answer 200:
+Three more used to sit outside this tier, and **all three moved into it on 2026-08-17**
+(DAR-247). They are recorded here rather than deleted, because the reason they were once
+in a document instead of the engine is the lesson:
 
-- **`lanes` can still be edited while a task is `in_progress`.** The frozen set is
-  `in_review`, `qa`, `done`, `cancelled`, and `in_progress` is not in it. So an
-  orchestrator can clear `lanes` to `[]` under a builder that is holding the row, silently,
-  and the full damage lands later: when that builder reports `in_review`, an empty
-  selection with `autoAdvance` on self-advances the row straight to `done`, unreviewed.
-  Verified end to end. Note that `dispatchedAt` is NOT the liveness signal for these rows,
+- **`lanes` is now frozen from `in_progress` onward**, not just from `in_review`. Clearing
+  it to `[]` under a live builder used to be a silent 200, and the damage landed later:
+  that builder reports `in_review`, an empty selection with `autoAdvance` self-advances the
+  row straight to `done`, unreviewed. Echoing the value back unchanged still passes, so
+  read-then-write works. Note `dispatchedAt` is NOT the liveness signal for these rows,
   because the builder's own status PATCH clears the stamp. The status is the signal.
-- **Re-entering `in_review` after a closed round spawns a whole fresh round.** The server
-  refuses to spawn while a round is OPEN, and asks nothing once it has closed. So the exact
-  documented mistake, pushing a parent out and back in during rework, is a 200 that quietly
-  orders a second review. Verified: a parent with one closed `code-review` child, PATCHed
-  back to `in_review`, came out with two.
-- **`POST /feedback` takes any author, and defaults a missing one to the literal string
-  `unknown`.** The stakeholder list is right there on the project and the route does not
-  consult it. That is precisely the signature of the rows that had to be purged, and
-  the inconsistency is stark: the APPEND route requires an author and 400s without one,
-  on the grounds that an addition nobody is named for is a silent rewrite wearing a label.
-  The create door is the weaker one, and it is the one that made the mess.
+- **Re-entering `in_review` after a fully closed round is now a 409** naming the children,
+  overridable with `{"reviewAgain": true}` in the same patch. It fires only when every
+  child of the previous round is closed, which is exactly the condition under which a
+  second round would spawn; with one still open the server already declined.
+- **`POST /feedback` now refuses an author the project does not know**, instead of
+  defaulting a missing one to the literal string `unknown`. Gated on the project having a
+  stakeholder list, matched against stakeholders ∪ registered agents. The rows that had to
+  be purged all carried that exact string, and the inconsistency was stark: the APPEND
+  route had always required an author.
 
-Until those land, they are on you, which is the whole reason this section says so rather
-than trusting you to infer it from Part B.
+**The lesson, which outlives the three fixes.** Every one of them sat written down here, in
+the section about what documents cannot enforce, and being written down stopped none of
+them. Two were then committed BY the session that had documented them that same morning. If
+you find yourself adding a fourth bullet to a list like this, the list is not the fix.
+
+One gap is known and open: two simultaneous PATCHes into `in_review` still spawn two rounds,
+because the guard reads and then writes with a window in between. Concurrency, not logic.
 
 **Tier 2, you have to write it down before you act.** The pre-flight below. Weaker than a
 refusal, and its only mechanism is that producing a token is harder to skip than recalling
