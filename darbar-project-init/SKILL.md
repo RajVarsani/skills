@@ -700,9 +700,15 @@ adds a line at the end, and it is not idempotent, so check before repeating a ca
 think failed), and replacing the stakeholder list in bulk. Both go through
 `PATCH /api/projects/:ref`, read-edit-send-whole, with the same care as before.
 
-**There is no close transition and no delete route.** No project status, no archive flag,
-no `DELETE /api/projects`, no `DELETE /api/tasks`. Closing a project is a discipline, and
-this is it:
+**There is an archive, but still no delete route.** `PATCH /api/projects/:ref
+{"archived": true, "archiveReason": "..."}` (MCP: `archive_project` / `unarchive_project`)
+flips a project to closed. There is still no `DELETE /api/projects`, no `DELETE /api/tasks`.
+Archiving is refused with 409 on a project with open rows unless you pass `cancelOpen: true`
+(which does step 1 below for you, and records on each cancelled row that the project was
+archived, and when) or `force: true` - so the discipline below is enforced now, not merely
+recommended. **Archiving does not withdraw the shared proxy route.** That is the one step
+below that leaks if skipped, and archiving does not cover it: closing a project properly is
+still this:
 
 1. Every task in a terminal state. Cancel what will not be done, with a reason in
    `notes`. Do not leave a backlog column as a monument (Part C).

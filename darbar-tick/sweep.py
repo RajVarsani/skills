@@ -115,11 +115,16 @@ if gabbar:
                    'check apps/gabbar/src/bot.ts started cleanly')
 
 # ---- 2. reads: four calls, whole board in one of them ----
-projects = get(f'{API}/projects')
+# archived=all: the default view is active-only, and a swept project that finished and got
+# archived would otherwise vanish from this list, making the sweep print NO PROJECT and exit
+# 2 - a lie, since the project exists and is simply done. The sweep must see archived projects
+# to correctly say nothing about them (see the archivedAt check below).
+projects = get(f'{API}/projects?archived=all')
 me = next((p for p in projects if p['prefix'] == PROJ), None)
 if not me:
     print(f'NO PROJECT {PROJ} on this server')
     sys.exit(2)
+now = datetime.datetime.now(datetime.timezone.utc)
 
 # the tunnel: fetch a REAL board through the PUBLIC url, not a process check. This is the
 # gap that let ngrok die silently while local api/proxy both stayed healthy.
@@ -144,6 +149,23 @@ else:
     except Exception as e:
         out.append(f'DOWN tunnel /api/tasks check {burl} ({e})')
 
+# An archived project is a closed decision, not a queue: its open rows are what someone chose
+# to leave open on purpose, not work waiting on anybody. Reporting them every tick forever
+# would be exactly the noise this system exists to prevent - it trains people to stop reading
+# the sweep. Stop here, after the machine checks above (api/gabbar/proxy/heartbeat/tunnel -
+# those verify the box, not this project, so they still run) and before anything below that
+# reads this project's board. Reset the streak file rather than leaving it untouched: if this
+# project is later unarchived, the next real tick must not inherit a "clean streak" that
+# spans ticks where nothing was actually checked.
+if me.get('archivedAt'):
+    reason = f", reason: {me['archiveReason']}" if me.get('archiveReason') else ''
+    print(f'ARCHIVED {PROJ} at {me["archivedAt"]}{reason} - nothing to sweep')
+    try:
+        STATE.write_text(json.dumps({'clean': 0, 'fp': None, 'at': now.isoformat(), 'proj': PROJ}))
+    except Exception:
+        pass
+    sys.exit(0)
+
 board = get(f'{API}/p/{me["capId"]}')
 ctx = get(f'{API}/projects/{PROJ}/context')
 tasks, feedback = board['tasks'], board['feedback']
@@ -152,7 +174,6 @@ try:
 except Exception:
     held = 0
 
-now = datetime.datetime.now(datetime.timezone.utc)
 age = lambda s: (now - datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))).total_seconds() / 60
 rev = [t for t in tasks if t['type'] == 'review']
 kids = lambda p: [r for r in rev if r.get('parentTaskId') == p['_id']]
@@ -228,6 +249,13 @@ if junk:
 # of its creation, and REV — 6 repos, a real charter, no stakeholders — every tick before that.
 # LIVE still SUPPRESSES, but it may no longer ACCUSE. A probe has none of the substance below.
 def is_stray(p):
+    # Archived beats every other test, including LIVE. A project closed on purpose is the
+    # MOST finished thing on the server, and by the time it closes it may have shed every
+    # repo and stakeholder it ever had - to the substance check below that looks identical
+    # to a probe. This already cried wolf once on real new projects with thin substance
+    # (MRFIII, REV); do not let it cry wolf a second time on real finished ones.
+    if p.get('archivedAt'):
+        return False
     if p['prefix'].upper() in LIVE:
         return False
     substance = bool(p.get('repos')) or bool(p.get('stakeholders')) or len(str(p.get('charter') or '')) > 400
