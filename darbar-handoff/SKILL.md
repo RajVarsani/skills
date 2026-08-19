@@ -38,6 +38,11 @@ Look for exactly these, they are what has actually been lost before:
   These never survive compaction and always cost the same hour twice.
 - **State that contradicts the code.** Something running, migrated, deployed or killed
   that no file records.
+- **Linear drift on a mirrored project.** A project with `linearUrl` set has a hand-synced
+  copy of its rows in Linear (twins named in each row's `notes`). If this session moved a
+  mirrored row and the Linear twin was not moved (or vice versa), that drift exists only in
+  your head: record it on the row's `notes` now, so the next session reconciles instead of
+  trusting whichever copy it happens to read first.
 - **Blocked work and what it waits on**, named as a person or an event, not "later".
 - **Anything you told Raj you would do next.** An intention in prose is not a plan.
 

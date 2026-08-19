@@ -728,6 +728,21 @@ still this:
    deliberately left alone and reported, not deleted.
 4. A final event on the log saying the project is closed, so the trail ends somewhere.
 
+**Linear-mirrored projects (dual mode, pilot since 19 Aug 2026).** A project may carry
+`linearUrl` (MCP: `set_linear_url`, applied by `PATCH /api/projects/:ref`; read it back on
+`get_project_context`). What it means: a stakeholder-facing copy of the open rows lives in
+the company's Linear workspace, the console card opens that view (the native board moves
+into the card's ⋯ menu), and each mirrored row names its twin in `notes` ("mirrored as
+MEE-26"). What it does NOT mean: nothing else changes. Darbar is the system of record —
+tasks, feedback, dispatch, review lanes and every lifecycle rule in this document run HERE,
+and gabbar still files here. The Linear copy is synced BY HAND: when you close, block or
+re-open a mirrored row, say so in your report so the orchestrator can move the twin.
+Convention on the Linear side: rows scatter into the company's EXISTING Linear projects
+(never a new team or project per round) and carry the workspace label `darbar/<PREFIX>`;
+the `linearUrl` points at that label's filtered view, which is the board. **Standing rule
+while the bridge is manual: no agent writes to Linear at all, and even the orchestrator
+writes only with Raj's explicit yes/no that turn.**
+
 **Throwaway projects.** If you need to exercise the API, do it on a throwaway prefix,
 never on a live project. Since there is no delete route, cleanup is direct Mongo against
 `mission_control`: delete the project's tasks, feedback and events by `projectId`, then
