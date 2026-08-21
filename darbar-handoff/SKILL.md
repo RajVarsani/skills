@@ -38,11 +38,11 @@ Look for exactly these, they are what has actually been lost before:
   These never survive compaction and always cost the same hour twice.
 - **State that contradicts the code.** Something running, migrated, deployed or killed
   that no file records.
-- **Linear drift on a mirrored project.** A project with `linearUrl` set has a hand-synced
-  copy of its rows in Linear (twins named in each row's `notes`). If this session moved a
-  mirrored row and the Linear twin was not moved (or vice versa), that drift exists only in
-  your head: record it on the row's `notes` now, so the next session reconciles instead of
-  trusting whichever copy it happens to read first.
+- **Undrained feedback on a linear-native project.** A project with `linearUrl` set keeps
+  its tasks in Linear; darbar holds only history and the gabbar feedback intake. If this
+  session saw feedback rows arrive there and did not carry them into Linear (comment on
+  the right ticket, or a new labelled issue) and resolve them, that queue is invisible to
+  everyone working in Linear: drain it now, or say in the report exactly which rows wait.
 - **Blocked work and what it waits on**, named as a person or an event, not "later".
 - **Anything you told Raj you would do next.** An intention in prose is not a plan.
 

@@ -728,20 +728,32 @@ still this:
    deliberately left alone and reported, not deleted.
 4. A final event on the log saying the project is closed, so the trail ends somewhere.
 
-**Linear-mirrored projects (dual mode, pilot since 19 Aug 2026).** A project may carry
-`linearUrl` (MCP: `set_linear_url`, applied by `PATCH /api/projects/:ref`; read it back on
-`get_project_context`). What it means: a stakeholder-facing copy of the open rows lives in
-the company's Linear workspace, the console card opens that view (the native board moves
-into the card's ⋯ menu), and each mirrored row names its twin in `notes` ("mirrored as
-MEE-26"). What it does NOT mean: nothing else changes. Darbar is the system of record —
-tasks, feedback, dispatch, review lanes and every lifecycle rule in this document run HERE,
-and gabbar still files here. The Linear copy is synced BY HAND: when you close, block or
-re-open a mirrored row, say so in your report so the orchestrator can move the twin.
-Convention on the Linear side: rows scatter into the company's EXISTING Linear projects
-(never a new team or project per round) and carry the workspace label `darbar/<PREFIX>`;
-the `linearUrl` points at that label's filtered view, which is the board. **Standing rule
-while the bridge is manual: no agent writes to Linear at all, and even the orchestrator
-writes only with Raj's explicit yes/no that turn.**
+**Linear-native projects (since 21 Aug 2026; supersedes the 19 Aug "mirror" pilot).** A
+project may carry `linearUrl` (MCP: `set_linear_url`; read it back on
+`get_project_context`). That URL is the label-filtered view in the company's Linear
+workspace, and for such a project **Linear IS the board of record** — there is no darbar
+task board to keep in sync (the two-day mirror pilot proved a hand-synced copy drifts
+immediately; Raj killed it). The darbar project is ARCHIVED and survives for exactly two
+things: history, and the gabbar feedback pipe, which has no archived-gate and keeps
+filing rows.
+
+The working contract for agents on a linear-native project:
+- **Tasks live in Linear.** Read them there; move them there. Agents have FULL CRUD on
+  issues carrying the `darbar/<PREFIX>` label — create, edit, move status, comment. An
+  issue WITHOUT a darbar label belongs to a colleague: read-only, always.
+- **Feedback still arrives through gabbar** as darbar feedback rows on the archived
+  project. The orchestrator drains that queue into Linear: a comment on the relevant
+  ticket when one exists, a comment on the standing feedback-inbox ticket when it is
+  general, a NEW labelled issue when it is its own work item. Then resolve the darbar row
+  (resolvedTaskRef where a darbar row exists, else a resolution naming the MEE id) so the
+  reporter's Slack thread gets its reply — that reply machinery is the one thing Linear
+  cannot do and the reason the pipe stays.
+- **Convention:** rows go into the company's EXISTING Linear projects (never a new team or
+  project per round), always carrying the workspace label `darbar/<PREFIX>`; the label
+  view is the board.
+- **Review pipeline, lanes, done-gates do not apply** on the Linear side — those are
+  darbar-engine features. A linear-native project runs on Linear's own workflow plus the
+  orchestrator's judgment.
 
 **Throwaway projects.** If you need to exercise the API, do it on a throwaway prefix,
 never on a live project. Since there is no delete route, cleanup is direct Mongo against
