@@ -26,6 +26,13 @@ the wire-level detail: exact routes, request bodies, field allowlists, the
 cold-start command sequence. Rules live here; commands live there. When you need
 to type something, open it.
 
+**This file is the authority the other three skills point at, and none of them restate
+it.** `darbar-tick` executes one maintenance round of it on a timer. `darbar-handoff` runs
+before a compaction and files what only the conversation knows. `darbar-resume` runs after
+one and sends the fresh session back HERE for Part 0 and Part C, because those are the
+parts a summary drops and their loss is silent. If you change a rule, change it in this
+file; a second copy of a doctrine is a coin flip about which one an agent reads.
+
 # Part 0: What binds, and what only describes
 
 Read this even if you have read the rest. It is the part that was missing.

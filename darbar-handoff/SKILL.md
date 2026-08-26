@@ -78,10 +78,17 @@ worse than no handoff, because the next session trusts it.
 
 ## After compaction
 
-Nothing to run. The `SessionStart` hook on `matcher: "compact"` prints the snapshot back
-into the fresh context automatically, because SessionStart stdout enters context and
-PreCompact stdout does not. Running this skill again after a compaction is harmless and
-just reprints state.
+**State comes back on its own; doctrine does not.** The `SessionStart` hook on
+`matcher: "compact"` prints the snapshot into the fresh context automatically, because
+SessionStart stdout enters context and PreCompact stdout does not. That covers the board,
+git and processes. It does not cover how the project is run: the operating manual was a
+skill body, and a skill body is exactly what a summary drops.
+
+So the other half of the pair is `darbar-resume`, and the hook tells the fresh session to
+invoke it. It re-reads the charter and the event log from the API and re-loads Part 0 and
+Part C from `darbar-project-init`, which is the authority for both skills and is
+deliberately restated in neither. Running THIS skill after a compaction is harmless but
+pointless; it just reprints state.
 
 If the block did not appear, the hook is gated on the API answering on 4899 — start the
 server, or run Step 1 by hand.
