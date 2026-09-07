@@ -744,6 +744,16 @@ immediately; Raj killed it). The darbar project is ARCHIVED and survives for exa
 things: history, and the gabbar feedback pipe, which has no archived-gate and keeps
 filing rows.
 
+**Archive that transfer with `force: true`, NEVER `cancelOpen`.** The archive gate asks a
+real question and the two answers are opposite claims about the same rows: `cancelOpen`
+says *this is over and these did not make it*, `force` says *this work continues somewhere
+else*. A move to Linear is by definition the second one, so cancelling is a false
+statement about live work — and it is the statement that survives, because unarchiving
+does not un-cancel anything. This has already happened once (MONO, 7 Sep): six open rows
+were cancelled by a transfer archive, each carrying a note saying the work *continues* in
+Linear, so the row state contradicted its own note. If the project is going linear-native
+before it has been worked at all, it has no open rows and neither flag is needed.
+
 The working contract for agents on a linear-native project:
 - **Tasks live in Linear.** Read them there; move them there. Agents have FULL CRUD on
   issues carrying the `darbar/<PREFIX>` label — create, edit, move status, comment. An
