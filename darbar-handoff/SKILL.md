@@ -1,6 +1,6 @@
 ---
 name: darbar-handoff
-description: Run this immediately BEFORE /compact (or before ending a session) so nothing that matters is lost when the conversation is summarised. Sweeps for facts, decisions, gotchas and half-finished work that exist ONLY in this conversation and routes each to its one home - a task row, a note, the charter, CLAUDE.md or memory - then writes the deterministic snapshot the SessionStart hook prints back after compaction. Records, unanswered questions and things already visible elsewhere are NOT rows, and on any board colleagues read it proposes rather than files. Use when about to compact, about to clear, wrapping up, handing off, or when asked whether everything is in sync with the board.
+description: Run BEFORE compacting or ending a session so nothing that exists only in the conversation is lost. Sweeps for unfiled work, decisions and their reasoning, gotchas and blocked items, routes each to its ONE home (task row, note, charter, agent-instruction file, memory), and writes the snapshot the SessionStart hook prints back. Records, unanswered questions and things already visible elsewhere are not rows; on boards colleagues read it proposes instead of filing. Use before /compact or /clear, when wrapping up or handing off, or when asked if everything is in sync with the board.
 ---
 
 # Darbar handoff
@@ -55,8 +55,8 @@ Where each goes:
 | pending work, however small | a task row (`backlog`/`todo`) |
 | why a route was taken | `description` or `notes` on the row it concerns |
 | a durable rule about how to work | the project charter, so lanes read it too |
-| a gotcha about this machine or repo | the repo's `CLAUDE.md`, in one line |
-| a fact about Raj's preferences | auto-memory, not the board |
+| a gotcha about this machine or repo | the repo's agent-instruction file, in one line — `CLAUDE.md` under Claude Code, `AGENTS.md` under Codex. Write it where the harness you are in will read it back, or it is a note to nobody |
+| a fact about Raj's preferences | your harness's own memory, not the board |
 
 **File it, do not describe it.** "Worth remembering that X" in your reply is exactly the
 thing that will not survive.

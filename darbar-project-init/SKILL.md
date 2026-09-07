@@ -1,6 +1,6 @@
 ---
 name: darbar-project-init
-description: Bootstrap a Darbar-tracked project AND run it. Day-zero OR retro-init of work already underway ("put this session under darbar", "register this project"). Interviews for context (mandatory, includes subagent structure + backlog scope + update cadence), registers the project + charter in Darbar, cuts branches, seeds the task tree so the board carries ALL known pending work, binds the Slack channel for Gabbar intake, then turns the current session into a strict orchestrate-only manager. Carries the full operating manual: every task / review-lane / feedback / project / agent lifecycle as the engine actually implements it, the standing orchestration doctrine, how to recover a project someone else left in a mess, and (Part 0) which rules the engine actually refuses versus which ones only sit in a document, including the writes that answer 200 and should not, the written pre-flight before every dispatch, and the two rules nothing here can enforce. Pairs with the darbar-tick skill, which is one maintenance pass over the board on a /loop timer. Use when starting a new agent-orchestrated project ("init project", "new darbar project", "spin up a project"), when bringing an in-flight session/effort under Darbar tracking, or when taking over an existing Darbar project.
+description: Bootstrap a Darbar-tracked project and then run it as a strict orchestrate-only manager. Day-zero or retro-init of work already underway. Interviews for context, registers project + charter, seeds the task tree, binds Slack for Gabbar intake. Also THE operating manual the other darbar skills defer to - every task, review-lane, feedback, project and agent lifecycle as the engine really implements it, plus the orchestration and token-economics doctrine for whichever model and harness is reading it. Use for "init project", "new darbar project", "put this under darbar", or taking over an existing board.
 ---
 
 # Darbar Project Init
@@ -915,37 +915,97 @@ verbatim into a human's thread.
 
 ## Token economics — dispatch is not free
 
-Raj pays per token on an API key, and asked twice in one week to stop burning them. So
-this is a standing constraint on orchestration, not a nicety.
+Raj pays per token, and asked twice in one week to stop burning them. So this is a
+standing constraint on orchestration, not a nicety.
 
-**Know what a subagent actually costs.** A subagent does NOT inherit your conversation. It
-starts on a fresh context: its system prompt, the delegation prompt you write, every
-CLAUDE.md in scope, and any skills preloaded into it. Only its final message comes back to
-you; every file it read, every grep, every dead end stays in its context and never touches
-yours. Two consequences, and they point in opposite directions:
+### First, locate yourself
+
+**This section is written for whichever model and harness is reading it.** The principles
+below are the same everywhere; the numbers and the mechanisms are not, and a rule applied
+with the wrong constants is worse than no rule. Before you dispatch anything, settle three
+facts about yourself, from what you can actually observe rather than from memory:
+
+1. **Which harness** — Claude Code or Codex CLI (or something else). Look at what your
+   tools are called and where config lives (`~/.claude/` vs `~/.codex/`).
+2. **Which model you are**, and therefore what your own tokens cost.
+3. **What a cheaper worker costs**, in the same family, from the table below.
+
+Facts verified 7 Sep 2026. Prices are per million tokens, input / output.
+
+| family | flagship | mid | cheap |
+|---|---|---|---|
+| Claude | Fable 5 — $10 / $50 | Sonnet 5 — $2 / $10 | Haiku 4.5 — $1 / $5 |
+| Claude | Opus 5 — $5 / $25 | | |
+| OpenAI | GPT-6 Astra — $10 / $50 | Terra — $2 / $12 | Luna — $0.20 / $1.20 |
+| OpenAI | Sol — $4 / $20 | gpt-5.3-codex — $1.75 / $14 | |
+
+Two consequences worth reading twice. **The flagship is not the top of a gentle slope**:
+Fable 5 costs twice Opus 5, and an Astra worker costs roughly forty times a Luna one per
+output token. And on both harnesses, **a subagent inherits the parent's model unless you
+say otherwise**, so the single most expensive mistake available to you is omitting the
+model field. Naming a tier in every dispatch is not bookkeeping; it is the difference.
+
+Where the harnesses genuinely differ, and it changes what you do:
+
+| | Claude Code | Codex CLI |
+|---|---|---|
+| spawn a worker | Agent tool; `model` settable per call | `spawn_agent` / `wait_agent` / `close_agent`; on by default. Agent types are TOML in `~/.codex/agents/` |
+| choose the worker's model | per call, and it is the default you must override | `agents.default_subagent_model`, or the agent type's own field |
+| reasoning effort per worker | not per call — inherits the session | `agents.default_subagent_reasoning_effort`, or per agent type |
+| inherit the conversation | `subagent_type: "fork"` | check the current subagent docs before assuming it exists |
+| what comes back | the final message only | a distilled summary only |
+| cached input | 0.1x, TTL 5 min (1 h available) | 0.1x, TTL 30 min |
+| skills live in | `~/.claude/skills/` | `~/.agents/skills/` (also scanned per-repo) |
+| context injection | `SessionStart` / `PreCompact` hooks | the same events, plus `PostCompact`, via `additionalContext` |
+
+Anything not in that table, look up rather than assume — the two harnesses borrow each
+other's vocabulary and the words rarely mean the same thing. Astra advertises a very large
+window, but what a CLI session actually gives you is a question to answer by measurement,
+not from a number on a model card.
+
+**Know what a subagent actually costs.** A subagent does NOT inherit your conversation
+(unless you explicitly fork it). It starts on a fresh context: its system prompt, the
+delegation prompt you write, the agent-instruction files in scope, and any skills loaded
+into it. Only its final summary comes back to you; every file it read, every grep, every
+dead end stays in its context and never touches yours. Two consequences, pointing in
+opposite directions:
 
 - It is a **context firewall**. Exploration, audits and searches belong in an agent because
   the raw output never lands in your window. Doing a wide grep inline is the expensive way.
-- It is a **spend multiplier**. Anthropic measured multi-agent runs at roughly **15x** the
-  tokens of a single thread, and found token volume alone explains about 80% of the quality
-  difference. You are buying quality with money, so buy it deliberately.
+  This holds identically on both harnesses: both return a summary, never the transcript.
+- It is a **spend multiplier**. Anthropic measured agents at roughly **4x** the tokens of a
+  chat and multi-agent runs at roughly **15x**, and found token volume alone explains about
+  80% of the quality difference. **OpenAI publishes no equivalent figure**, so on Codex
+  treat 15x as an untested analogy, not a constant: say what you expect, then read the real
+  number off the session afterwards.
 
 **The decomposition test, before every fan-out.** Multi-agent earns its multiplier only when
 the work splits into genuinely independent parallel paths. If the parts share context, or
-depend on each other's output, or are really one edit to one file, you pay 15x and earn
-nothing. Most darbar rows are one file and one edit: those are inline work or a single
-agent, never a fan-out. Fan out for breadth (many files, many repos, many independent
-questions), never for ceremony.
+depend on each other's output, or are really one edit to one file, you pay the multiplier
+and earn nothing. Most darbar rows are one file and one edit: those are inline work or a
+single agent, never a fan-out. Fan out for breadth (many files, many repos, many
+independent questions), never for ceremony.
+
+Take this seriously, because the people who build these systems are blunter about it than
+the people who use them. Anthropic's own guidance is that multi-agent suits "tasks that
+involve heavy parallelization, information that exceeds single context windows, and
+interfacing with numerous complex tools", and is a poor fit where subtasks share context or
+depend on one another — **naming most coding work as the counter-example**. OpenAI's is
+that subagents "may not be as beneficial for tasks that depend on a single ordered chain of
+reasoning". A fan-out over one feature branch is usually that chain wearing a costume.
 
 **The rules that follow, in order of how much they save:**
 
 1. **One agent per file, not one per task.** Two tasks touching the same file are one
    brief. Every extra agent re-reads that file from scratch, and they will conflict.
-2. **Tier the model.** Sonnet where the WHAT is specified and verification is mechanical.
-   Opus only where judgment under ambiguity IS the job: adversarial review, security and
-   data-loss paths, fix-the-class-not-the-instance, genuine design trade-offs. Omitting the
-   model field silently runs a triage agent on Opus. State the tier in the dispatch so a
-   wrong one is visible afterwards.
+2. **Tier the model, and say so out loud.** A cheap tier where the WHAT is specified and
+   verification is mechanical; the flagship only where judgment under ambiguity IS the job:
+   adversarial review, security and data-loss paths, fix-the-class-not-the-instance,
+   genuine design trade-offs. Read the tiers off the table above and do the arithmetic
+   rather than trusting a habit — a Sonnet 5 worker is a fifth of a Fable 5 one, a Luna
+   worker about a fortieth of an Astra one. **The default is inheritance, so silence buys
+   the flagship**: omit the model and a triage errand runs at orchestrator rates. State the
+   tier in the dispatch so a wrong one is visible afterwards, in the report and in the bill.
 3. **Lanes match stakes.** `lanes: []` for anything a builder already proved. One
    `code-review` lane by default, one round. A one-line change gets no lane and often no
    row of its own. Ticket the ask, not each edit.
@@ -956,11 +1016,24 @@ questions), never for ceremony.
    console reads. Never cat a file to learn one line of it.
 6. **Never re-derive what the board already knows.** The board is the shared memory. A
    status question is a shell call against the API, not a re-read of the conversation.
+   This is not only thrift: Anthropic's context-engineering guidance calls notes kept
+   OUTSIDE the window the one mechanism that survives a context reset, which is precisely
+   what the board is and why `darbar-handoff` writes to it rather than to a summary.
+7. **Keep your cacheable prefix still.** Cached input reads at **0.1x** on both harnesses,
+   and the cache matches an exact prefix: system prompt, then tools, then messages. Change
+   a tool list or a system prompt mid-session and everything downstream re-bills at full
+   price. So do not churn MCP servers or swap models for the sake of it, and put the
+   volatile stuff (timestamps, the current ask) LAST. A re-read of doctrine after a
+   compaction is cheap for exactly this reason; a reshuffled toolset is not.
 
-**Measure rather than guess.** `/context` shows what is occupying the window right now, and
-`/usage` attributes recent spend to skills, subagents, plugins and individual MCP servers,
-flagging anything above about 10%. Run one of them before concluding that something is
-expensive; the thing you suspect is usually not the thing.
+**Measure rather than guess.** On Claude Code, `/context` shows what is occupying the
+window right now and `/usage` attributes recent spend to skills, subagents, plugins and
+individual MCP servers, flagging anything above about 10%. On Codex, `/status` is the
+equivalent first look. Run one before concluding that something is expensive; the thing you
+suspect is usually not the thing. Two traps worth knowing on the OpenAI side: reasoning
+tokens bill as output and are carried across turns by default, and a prompt over 272K input
+tokens moves Astra to a surcharged tier ($20/$75), so a compaction threshold set around
+200K keeps a long session out of it by construction.
 
 **The shell is free, the context window is not.** This is the same principle `darbar-tick`
 is built on: a board scan that runs in `sweep.py` and prints 88 bytes costs nothing, while

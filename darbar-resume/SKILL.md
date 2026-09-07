@@ -1,6 +1,6 @@
 ---
 name: darbar-resume
-description: Rehydrate a Darbar orchestrator after a compaction, a /clear, a --resume, or when a fresh session inherits a live board. The read half of the pair whose write half is darbar-handoff. Re-reads state from the API (board, charter, event log, processes) and re-loads the operating doctrine from darbar-project-init, which is the authority and is deliberately not restated here. Use after compaction, when taking over a board mid-flight, when the SessionStart block appeared and you are about to dispatch, or whenever you are unsure whether you still know how this project is run.
+description: Rehydrate a Darbar orchestrator after a compaction, clear, resume, or when a fresh session inherits a live board. Read half of the pair whose write half is darbar-handoff: re-reads state from the API (board, charter, event log, processes) and re-loads the doctrine from darbar-project-init, the authority it deliberately does not restate. State survives a compaction; the operating manual does not. Use after compacting, when taking over a board mid-flight, or before dispatching when unsure you still know how this project is run.
 ---
 
 # Darbar Resume
@@ -13,10 +13,14 @@ never had to save because it was never in the board: **how to run the project.**
 
 Be precise about this, because it decides what is worth spending tokens on.
 
-**Survives, exactly.** Board state. The `SessionStart` hook re-reads the API live and
-prints open rows, git, and processes into the fresh context. That block is authoritative
-and anything in the summary that contradicts it is stale. You do not need to re-derive any
-of it.
+**Survives, exactly.** Board state. A `SessionStart` hook re-reads the API live and prints
+open rows, git, and processes into the fresh context. That block is authoritative and
+anything in the summary that contradicts it is stale. You do not need to re-derive any of
+it. (Both harnesses can do this: Claude Code wires it in `~/.claude/settings.json`, Codex
+in `~/.codex/hooks.json` or its config, injecting through `additionalContext` — and Codex
+also fires `PostCompact`, which is the more precise moment. If no block appeared, the hook
+is not wired on this harness, so run Step 1 by hand rather than assuming the board is
+quiet.)
 
 **Survives, lossily.** Whatever the compaction summary judged important, and the one-line
 pointers in auto-memory. Both are hints, neither is an instruction set.
