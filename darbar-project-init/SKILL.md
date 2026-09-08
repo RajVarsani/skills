@@ -768,6 +768,18 @@ The working contract for agents on a linear-native project:
 - **Convention:** rows go into the company's EXISTING Linear projects (never a new team or
   project per round), always carrying the workspace label `darbar/<PREFIX>`; the label
   view is the board.
+- **Labelling an issue that already exists is an ADD, and the API will not do that for
+  you.** Linear's `save_issue` treats `labels` as the whole set: what you send becomes the
+  labels, and anything you leave out is removed, under a 200. So `labels: ["<PREFIX>"]` on
+  an existing ticket deletes `Bug`, `Feature` and every other tag its team relies on. Read
+  the issue, send its current labels PLUS yours, and never send a bare one-element array at
+  an issue you did not just create. Omitting `labels` entirely leaves them untouched, which
+  is what you want on every other edit. This is the wholesale-door failure from B4 wearing
+  someone else's badge, and it is worse here because the labels you destroy are a
+  colleague's taxonomy, not our config: Krish lost `Bug` on a Letters ticket this way
+  (8 Sep) and told Raj the board had become hard to read. **The darbar label is additive
+  provenance. It never replaces how the team classifies its own work**, and you do not
+  remove a label you did not add.
 - **Review pipeline, lanes, done-gates do not apply** on the Linear side — those are
   darbar-engine features. A linear-native project runs on Linear's own workflow plus the
   orchestrator's judgment.
