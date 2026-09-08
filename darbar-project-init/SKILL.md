@@ -766,8 +766,18 @@ The working contract for agents on a linear-native project:
   reporter's Slack thread gets its reply — that reply machinery is the one thing Linear
   cannot do and the reason the pipe stays.
 - **Convention:** rows go into the company's EXISTING Linear projects (never a new team or
-  project per round), always carrying the workspace label `darbar/<PREFIX>`; the label
-  view is the board.
+  project per round), always carrying the workspace label `<PREFIX>` **under the `darbar`
+  label GROUP** (create the group once, then a child per board); the label view is the
+  board. Check the existing labels before you create one: a flat `darbar/<PREFIX>` typed as
+  a literal name is a SECOND label that looks identical in prose and filters differently,
+  and the Letters team ended up with both.
+- **Our label is a second label, never the only one.** A ticket on a company board still
+  needs the team's own type tag — `Bug`, `Feature`, `Improvement`, whatever that team uses,
+  read from its label list rather than assumed. Ours records who manages the row; theirs
+  records what the work IS, and theirs is what their filters, triage and reporting run on.
+  A board of ours where every issue carries only `<PREFIX>` is unreadable to the people who
+  own the project, which is exactly the complaint Krish raised on 8 Sep: "makes it hard to
+  track what is a bug, feature etc".
 - **Labelling an issue that already exists is an ADD, and the API will not do that for
   you.** Linear's `save_issue` treats `labels` as the whole set: what you send becomes the
   labels, and anything you leave out is removed, under a 200. So `labels: ["<PREFIX>"]` on
