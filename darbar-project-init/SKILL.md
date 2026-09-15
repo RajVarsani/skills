@@ -357,7 +357,7 @@ inline ("put this session under darbar"):
 2. Register the project (Step 2), or PATCH `/api/projects/:ref` if it half-exists.
 3. Seed EVERY known pending item as a task: from the session so far, from memory
    files, from the user's answers, including human tasks assigned to stakeholders
-   (e.g. "Tanisha: fix file_type hardcode"). Record `origin` on the create call,
+   (e.g. "the backend owner: fix the file_type hardcode"). Record `origin` on the create call,
    because `origin` cannot be changed afterwards (Part B1).
 4. File every row at the status the work is actually at, which is the point of retro-init:
    already-done work as `done` cards so the board tells the true story of the project and
@@ -776,8 +776,8 @@ The working contract for agents on a linear-native project:
   read from its label list rather than assumed. Ours records who manages the row; theirs
   records what the work IS, and theirs is what their filters, triage and reporting run on.
   A board of ours where every issue carries only `<PREFIX>` is unreadable to the people who
-  own the project, which is exactly the complaint Krish raised on 8 Sep: "makes it hard to
-  track what is a bug, feature etc".
+  own the project, which is exactly the complaint a teammate raised on 8 Sep: the board had
+  become hard to read for what is a bug versus a feature.
 - **Labelling an issue that already exists is an ADD, and the API will not do that for
   you.** Linear's `save_issue` treats `labels` as the whole set: what you send becomes the
   labels, and anything you leave out is removed, under a 200. So `labels: ["<PREFIX>"]` on
@@ -786,8 +786,8 @@ The working contract for agents on a linear-native project:
   an issue you did not just create. Omitting `labels` entirely leaves them untouched, which
   is what you want on every other edit. This is the wholesale-door failure from B4 wearing
   someone else's badge, and it is worse here because the labels you destroy are a
-  colleague's taxonomy, not our config: Krish lost `Bug` on a Letters ticket this way
-  (8 Sep) and told Raj the board had become hard to read. **The darbar label is additive
+  colleague's taxonomy, not our config: a teammate's `Bug` label was destroyed on a ticket
+  this way (8 Sep), and they had to come and tell us. **The darbar label is additive
   provenance. It never replaces how the team classifies its own work**, and you do not
   remove a label you did not add.
 - **Review pipeline, lanes, done-gates do not apply** on the Linear side — those are
