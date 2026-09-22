@@ -1020,14 +1020,19 @@ reasoning". A fan-out over one feature branch is usually that chain wearing a co
 
 1. **One agent per file, not one per task.** Two tasks touching the same file are one
    brief. Every extra agent re-reads that file from scratch, and they will conflict.
-2. **Tier the model, and say so out loud.** A cheap tier where the WHAT is specified and
-   verification is mechanical; the flagship only where judgment under ambiguity IS the job:
-   adversarial review, security and data-loss paths, fix-the-class-not-the-instance,
-   genuine design trade-offs. Read the tiers off the table above and do the arithmetic
-   rather than trusting a habit — a Sonnet 5 worker is a fifth of a Fable 5 one, a Luna
-   worker about a fortieth of an Astra one. **The default is inheritance, so silence buys
-   the flagship**: omit the model and a triage errand runs at orchestrator rates. State the
-   tier in the dispatch so a wrong one is visible afterwards, in the report and in the bill.
+2. **Dispatch by role, never by model.** Three roles ship with darbar and are installed
+   into both harnesses by `deploy/agents/install.py`: `darbar-builder` (cheap tier, file
+   tools + its own board row, 80 turns), `darbar-reviewer` (judgment tier, read-only, 60
+   turns) and `darbar-researcher` (cheap tier, web only, 60 turns). Each role names a TIER
+   in `deploy/agents/roles.toml`; the tier maps to a model per harness. So you write
+   `subagent_type: "darbar-builder"` and never a model field — and the leak this replaces
+   cannot recur: in 21 days of transcripts 47% of dispatches omitted the model and inherited
+   the orchestrator's, 212 of them landing on the flagship by silence. A role also scopes
+   the worker's tools and MCP servers, which is what cut the cold start every worker paid
+   on every turn. Reach for `general-purpose` with an explicit `model` only when no role
+   fits, and say why in the dispatch. A project raises a role's tier in its own
+   `.darbar/roles.toml` (your "opus or better for anything I will see" rule is that file,
+   not a habit).
 3. **Lanes match stakes.** `lanes: []` for anything a builder already proved. One
    `code-review` lane by default, one round. A one-line change gets no lane and often no
    row of its own. Ticket the ask, not each edit.
