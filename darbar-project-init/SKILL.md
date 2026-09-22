@@ -1043,6 +1043,17 @@ reasoning". A fan-out over one feature branch is usually that chain wearing a co
    console reads. Never cat a file to learn one line of it.
 6. **Never re-derive what the board already knows.** The board is the shared memory. A
    status question is a shell call against the API, not a re-read of the conversation.
+   Since 22 Sep 2026 that memory has a second half: a **knowledge graph in darbar's mongo**
+   (`memory_nodes` / `memory_edges`, bi-temporal, traversable) behind three verbs —
+   `remember` (a node with observations and typed edges; dedupes by slug, appends, never
+   overwrites), `recall` (text match then up to two undirected hops along still-valid
+   edges; `asOf` answers "what did we believe then"), `supersede` (stamps `invalidAt` and
+   links to the replacement; nothing is ever deleted). Reads: the SessionStart hook injects
+   the global index, `darbar-resume` fetches the project index, `recall` for anything
+   specific. Writes: `remember`, always. **Do not write memory files** — the harness's own
+   memory folder is a drain that darbar ingests and empties, never a store anyone reads.
+   Repo-specific gotchas still go in that repo's `CLAUDE.md` / `AGENTS.md`, where a
+   colleague's agent finds them; everything cross-project or personal goes in the graph.
    This is not only thrift: Anthropic's context-engineering guidance calls notes kept
    OUTSIDE the window the one mechanism that survives a context reset, which is precisely
    what the board is and why `darbar-handoff` writes to it rather than to a summary.

@@ -52,6 +52,11 @@ a re-run for nothing: skip it and read the block. Then, for the project you are 
   not. Read it before your next move, not after.
 - `get_project_events <prefix>` — the event log is the only place that says *why* the
   board looks like this. Read it before you touch anything.
+- **The project's memory index**: `curl -s http://127.0.0.1:4899/api/memory/index?project=<prefix>`
+  (markdown, capped under 24KB). The SessionStart hook prints only the GLOBAL index, because
+  it cannot know which board a session runs; this is the per-project half, and it is the
+  same page a fresh session would have read from a memory file before memory moved into
+  the graph. For anything specific, `recall` (MCP) with a query and `hops: 2`.
 - The row you were mid-task on, by id. Another session or a lane may have moved it while
   you were compacting.
 
