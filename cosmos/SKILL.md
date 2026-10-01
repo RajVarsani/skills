@@ -68,9 +68,13 @@ $C up --backend stage --profile consumer-remote --name "Letter Platform" --json
 - Each source-mounted service runs from the instance's own git worktree,
   `instances/<id>/src/<svc>`, at galaxy's pinned commit. Edit and commit there.
   `$C src <id>` shows what each runs; `$C src <id> <svc>` lists branches;
-  `$C src <id> <svc> <branch|sha|pin> --json` switches one and recreates only its
-  containers. A branch checked out elsewhere runs detached (see `warnings`).
-  `rm` refuses while a worktree holds uncommitted or unpushed-detached work.
+  `$C src <id> <svc> <branch|tag|sha> --json` switches one and recreates only its
+  containers; `$C src <id> <svc> --pinned --json` goes back to galaxy's commit (a branch
+  named `pin` is just a branch). A branch checked out elsewhere runs detached (see `warnings`).
+  A switch refuses to orphan commits on no branch or overwrite ignored files like
+  `.env.local`; save them (`git branch <name>` in the worktree) rather than reaching for `--force`.
+  `rm` refuses while a worktree holds uncommitted, untracked or ignored files (not build
+  output), commits on no branch, or git state it cannot read; it never removes a locked worktree.
 
 Check any `warnings` and `cors` entries with `allowed: false` before trusting the app.
 
