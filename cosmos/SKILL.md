@@ -64,7 +64,13 @@ $C up --backend stage --profile consumer-remote --name "Letter Platform" --json
   `ports`, `cors`, `warnings`, `memory`. Open `url` for the app, `urls.<svc>` for others.
 - Local backend needs `--backend local` (the default for local profiles).
 - Cold local starts take minutes (the dev stack took about 3 minutes). Allow it; use
-  `--timeout S` if you need a ceiling. `--src svc=<path>` mounts your checkout of a service.
+  `--timeout S` if you need a ceiling.
+- Each source-mounted service runs from the instance's own git worktree,
+  `instances/<id>/src/<svc>`, at galaxy's pinned commit. Edit and commit there.
+  `$C src <id>` shows what each runs; `$C src <id> <svc>` lists branches;
+  `$C src <id> <svc> <branch|sha|pin> --json` switches one and recreates only its
+  containers. A branch checked out elsewhere runs detached (see `warnings`).
+  `rm` refuses while a worktree holds uncommitted or unpushed-detached work.
 
 Check any `warnings` and `cors` entries with `allowed: false` before trusting the app.
 
