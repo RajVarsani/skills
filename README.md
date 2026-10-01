@@ -14,6 +14,7 @@ npx skills add RajVarsani/skills -s gabbar  # one skill
 | `darbar-tick` | One maintenance pass over a Darbar board, armed on a timer with `/loop` so the queue keeps draining. Clean pass is one line |
 | `darbar-handoff` | Run BEFORE `/compact`: files everything that exists only in the conversation onto the board, then writes the snapshot the SessionStart hook prints back |
 | `darbar-resume` | Run AFTER a compaction, `/clear` or `--resume`: re-reads state from the API and re-loads the doctrine, because state survives compaction and doctrine does not |
+| `cosmos` | Spin up, use and tear down isolated Saturn instances with the cosmos CLI, with ownership and memory rules |
 
 `darbar-project-init` is the authority the other three point at; none of them restate its
 rules, so a doctrine change lands in one file.
