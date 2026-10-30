@@ -165,7 +165,8 @@ Never restart a server you did not start, and never restart the one on 4899 to
 
 The interview is not optional. Do NOT infer answers from context you already have,
 and do NOT start building before it. A skipped interview is the documented failure
-mode of this skill. Ask the user in ONE AskUserQuestion round (free-text follow-ups
+mode of this skill. Ask the user in ONE AskUserQuestion round (or the harness equivalent, see Harness
+primitives; free-text follow-ups
 only if genuinely blocking):
 
 - **Project name** and **short-id prefix**. LETTERS ONLY, 2 to 6 of them
@@ -387,7 +388,7 @@ standing rules allow pushes. Confirm each with `git -C <repo> branch --show-curr
 
 ## Step 4 — Recon and seed the task tree
 
-Spawn recon subagents in parallel (Agent tool), one per source: Slack thread digest,
+Spawn recon subagents in parallel (Agent tool or the harness equivalent, see Harness primitives), one per source: Slack thread digest,
 Figma inventory, codebase state, prior session transcripts. Each returns a structured
 list of work items with evidence.
 
@@ -853,7 +854,7 @@ thread call `mcp__t3-code__schedule_task {prompt: "run darbar-tick <PREFIX>", sc
 {type: "interval", everyMs: 900000}, bindToCurrentThread: true}`. The t3 CLI cannot create
 scheduled tasks and Codex threads lack the tool, so on Codex create it in the T3 UI; the
 fallback is a launchd timer running `t3 thread send <threadId> "run darbar-tick <PREFIX>"`.
-`/loop /darbar-tick` stays as an in-session convenience, not the default. The tick
+`/loop /darbar-tick` (Claude only, see Harness primitives) stays as an in-session convenience, not the default. The tick
 sweeps feedback, held reports, undispatched todos, open lanes, held parents, stale
 dispatches, duplicate rounds, probe litter and the three processes, in one shell call that
 prints nothing when the board is fine. Its budget, its human gate and its stop conditions
@@ -945,6 +946,20 @@ AI-tell phrasing in anything that reaches Slack, which includes Gabbar replies, 
 auto-resolutions, and the resolution sentences you write, because those get posted
 verbatim into a human's thread.
 
+## Harness primitives
+
+This skill names Claude Code tools. Each has an equivalent on Codex and in a T3 thread.
+
+| capability | Claude Code | Codex | T3 thread |
+|---|---|---|---|
+| ask Raj a question | `AskUserQuestion` | plain-text question in the reply; Codex renders it as `user_input_request` | same as Codex |
+| spawn a worker | Agent tool, `subagent_type: "darbar-builder"` etc. | `spawn_agent`, then `wait_agent`; roles come from `~/.codex/agents` | the provider's native tool; `delegate_task` only for another provider or a worktree |
+| periodic tick | T3 scheduled task; `/loop` in-session only | create the scheduled task in the T3 UI | T3 scheduled task; fallback is a launchd timer running `t3 thread send` |
+| background work | `run_in_background` | none, run inline | T3 background delegate |
+
+If a named tool is absent, use the fallback in your own column. Never stop because a tool
+is missing.
+
 ## Token economics — dispatch is not free
 
 Raj pays per token, and asked twice in one week to stop burning them. So this is a
@@ -1035,7 +1050,7 @@ reasoning". A fan-out over one feature branch is usually that chain wearing a co
    tools + its own board row, 80 turns), `darbar-reviewer` (judgment tier, read-only, 60
    turns) and `darbar-researcher` (cheap tier, web only, 60 turns). Each role names a TIER
    in `deploy/agents/roles.toml`; the tier maps to a model per harness. So you write
-   `subagent_type: "darbar-builder"` and never a model field — and the leak this replaces
+   `subagent_type: "darbar-builder"` (or the harness equivalent, see Harness primitives) and never a model field — and the leak this replaces
    cannot recur: in 21 days of transcripts 47% of dispatches omitted the model and inherited
    the orchestrator's, 212 of them landing on the flagship by silence. A role also scopes
    the worker's tools and MCP servers, which is what cut the cold start every worker paid

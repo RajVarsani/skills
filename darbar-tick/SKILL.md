@@ -151,7 +151,8 @@ The default timer is a T3 Code scheduled task bound to the orchestrator thread, 
 interval, prompt `run darbar-tick <PREFIX>`. `darbar-project-init` has the exact call and
 the Codex and launchd fallbacks; check `list_scheduled_tasks` before creating one.
 
-`/loop` is the in-session convenience, for when you want a tick running only while this
+`/loop` is the in-session convenience (Claude Code only; see Harness primitives in
+`darbar-project-init`), for when you want a tick running only while this
 session is open. It takes a slash command and either an interval or nothing:
 
 ```
