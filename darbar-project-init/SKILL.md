@@ -123,6 +123,10 @@ And one for the shell, because it is the same failure in a different window:
   Run the check, read its exit code, then commit as a separate call, then `git log -1
   --stat` and read the sha you just made.
 
+## Close-out
+
+Every reply to Raj ends with a short **Done / Blocked / Next** (one line each, "none" if empty), so it reads on a phone. Same on Claude and Codex.
+
 ## What a document cannot bind, stated plainly
 
 Two of the six failures above are not reachable from this file or from the engine, and
