@@ -1,6 +1,6 @@
 ---
 name: darbar-tick
-description: One maintenance pass over a Darbar board, designed to be armed on a timer with /loop so the board keeps draining when nobody is asking. Sweeps pending feedback and held reports, undispatched todos, review lanes left open after a manager reported, parents held by the done-gate, stale dispatches, duplicate review rounds, probe litter, and the three darbar processes. A tick that finds nothing prints one line and stops. Use when asked to keep working the board, drain the queue, run the loop, stop the board going idle, or check what is stuck. For bootstrapping or taking over a project, use darbar-project-init instead; that skill is the authority and this one only executes a round of it.
+description: One maintenance pass over a Darbar board, designed to be armed on a timer (a T3 scheduled task by default) so the board keeps draining when nobody is asking. Sweeps pending feedback and held reports, undispatched todos, review lanes left open after a manager reported, parents held by the done-gate, stale dispatches, duplicate review rounds, probe litter, and the three darbar processes. A tick that finds nothing prints one line and stops. Use when asked to keep working the board, drain the queue, run the loop, stop the board going idle, or check what is stuck. For bootstrapping or taking over a project, use darbar-project-init instead; that skill is the authority and this one only executes a round of it.
 ---
 
 # Darbar tick
@@ -147,8 +147,12 @@ how many quiet ticks have passed is not a stop condition.
 
 ## Arming it
 
-Compose with the existing `/loop` skill rather than building a scheduler. `/loop` takes a
-slash command and either an interval or nothing:
+The default timer is a T3 Code scheduled task bound to the orchestrator thread, 15 minute
+interval, prompt `run darbar-tick <PREFIX>`. `darbar-project-init` has the exact call and
+the Codex and launchd fallbacks; check `list_scheduled_tasks` before creating one.
+
+`/loop` is the in-session convenience, for when you want a tick running only while this
+session is open. It takes a slash command and either an interval or nothing:
 
 ```
 /loop 30m /darbar-tick
@@ -166,8 +170,8 @@ it just found. Suggested pacing, and it is only a suggestion because the finding
 real signal: work in flight or findings acted on, 10 to 15 minutes; clean, 30; clean
 streak at 3, 60; clean streak at 6, stop.
 
-Do not arm a second loop on a board that already has one. Check for a running sentinel
-loop before arming, which `/loop` tells you to do anyway.
+Do not arm a second timer on a board that already has one: a scheduled task, or a running
+sentinel loop, which `/loop` tells you to check anyway.
 
 ## What this tick will never fix
 

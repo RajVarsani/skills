@@ -95,7 +95,7 @@ a rule. Be honest about that: if you find yourself dispatching without writing i
 failed, and the answer is to move the rule into tier 1, not to reword this paragraph.
 
 **Tier 3, a sweep runs on a clock and prints what is wrong.** Not you remembering to
-audit. The sweep is `darbar-tick` and the schedule is `/loop`. It catches the classes that
+audit. The sweep is `darbar-tick` and the schedule is a T3 Code scheduled task bound to the orchestrator thread (below). It catches the classes that
 are invisible in the moment and obvious in aggregate: probe litter, duplicate rounds, held
 parents, stale dispatches, a dead gabbar. It found all three duplicate rounds on the DAR
 board in a quarter of a second, including one from two days earlier that nobody had noticed.
@@ -846,9 +846,15 @@ that will be read wrong.
 
 **And the board does not wait to be asked.** Twice in one day it sat still until Raj said
 "why did you stop" and "do all the tasks". A queue that only moves when the stakeholder
-prompts it is not being managed, it is being escorted. Arm the tick before you go quiet:
-`/loop /darbar-tick`, which is the `darbar-tick` skill on the existing `/loop` scheduler.
-It sweeps feedback, held reports, undispatched todos, open lanes, held parents, stale
+prompts it is not being managed, it is being escorted. Arm the tick before you go quiet.
+The default timer is a T3 Code scheduled task bound to this project's orchestrator thread.
+Call `list_scheduled_tasks` first so a second one is not created, then from inside that
+thread call `mcp__t3-code__schedule_task {prompt: "run darbar-tick <PREFIX>", schedule:
+{type: "interval", everyMs: 900000}, bindToCurrentThread: true}`. The t3 CLI cannot create
+scheduled tasks and Codex threads lack the tool, so on Codex create it in the T3 UI; the
+fallback is a launchd timer running `t3 thread send <threadId> "run darbar-tick <PREFIX>"`.
+`/loop /darbar-tick` stays as an in-session convenience, not the default. The tick
+sweeps feedback, held reports, undispatched todos, open lanes, held parents, stale
 dispatches, duplicate rounds, probe litter and the three processes, in one shell call that
 prints nothing when the board is fine. Its budget, its human gate and its stop conditions
 live in that skill; the one thing to carry here is that a loop with no stop condition is
