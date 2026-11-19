@@ -8,6 +8,18 @@ description: Bootstrap a Darbar-tracked project and then run it as a strict orch
 You are bootstrapping a project into Darbar (the self-hosted tracker at
 `~/fafo/darbar`, API on `http://localhost:4899`) and then running it.
 
+When running this skill in T3 Code, enroll the current thread in Darbar's context watcher:
+
+```bash
+if [ -n "${T3CODE_THREAD_ID:-}" ]; then
+  python3 -c 'import json, os; print(json.dumps({"threadId": os.environ["T3CODE_THREAD_ID"]}))' |
+    curl -fsS --max-time 5 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4899/api/ctx/enroll
+fi
+```
+
+Enrollment preserves any opt-out. If enrollment fails, report it and continue with the project.
+Use only the current thread id from the environment.
+
 This file is the whole job, in five parts. Read all of it before you start
 dispatching; the bootstrap is the short part.
 
