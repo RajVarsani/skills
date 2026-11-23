@@ -8,13 +8,17 @@ description: Rehydrate a Darbar orchestrator after a compaction, clear, resume, 
 When running this skill in T3 Code, enroll the current thread in Darbar's context watcher:
 
 ```bash
+PREFIX=XXX  # the board prefix you are running, e.g. DAR
 if [ -n "${T3CODE_THREAD_ID:-}" ]; then
-  python3 -c 'import json, os; print(json.dumps({"threadId": os.environ["T3CODE_THREAD_ID"]}))' |
+  PREFIX="$PREFIX" python3 -c 'import json, os; print(json.dumps({"threadId": os.environ["T3CODE_THREAD_ID"], "project": os.environ["PREFIX"]}))' |
     curl -fsS --max-time 5 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4899/api/ctx/enroll
 fi
 ```
 
-Enrollment can be repeated after a fresh context and preserves any opt-out. If enrollment fails,
+Enrollment can be repeated after a fresh context and preserves any opt-out. Passing `project` also
+binds this thread as the project's T3 thread when the project has none, so the context watcher tracks
+the board's thread even when no feedback has gone through the outbox. A project already bound keeps
+its thread (`projectThread` in the reply says which); rebind on purpose with `set_t3 {t3ThreadId}`. If enrollment fails,
 report it and continue resuming. Use only the current thread id from the environment.
 
 The pair is `darbar-handoff` before the lossy step, this one after. Handoff moves facts

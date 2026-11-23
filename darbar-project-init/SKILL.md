@@ -11,8 +11,9 @@ You are bootstrapping a project into Darbar (the self-hosted tracker at
 When running this skill in T3 Code, enroll the current thread in Darbar's context watcher:
 
 ```bash
+PREFIX=XXX  # the board prefix you are running, e.g. DAR
 if [ -n "${T3CODE_THREAD_ID:-}" ]; then
-  python3 -c 'import json, os; print(json.dumps({"threadId": os.environ["T3CODE_THREAD_ID"]}))' |
+  PREFIX="$PREFIX" python3 -c 'import json, os; print(json.dumps({"threadId": os.environ["T3CODE_THREAD_ID"], "project": os.environ["PREFIX"]}))' |
     curl -fsS --max-time 5 -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4899/api/ctx/enroll
 fi
 ```
